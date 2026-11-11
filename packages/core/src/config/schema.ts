@@ -77,11 +77,13 @@ const roleMapSchema = z
   })
   .pipe(z.record(z.string().regex(ROLE_NAME, 'Invalid role name'), z.array(permissionSchema)));
 
+// Persona text goes into every model call; these caps keep the instructions within the
+// per-call input budget of the agent graph (ADR 0005).
 const personaSchema = z.strictObject({
-  systemPrompt: nonEmpty,
-  answerStyle: nonEmpty,
-  outOfScope: nonEmpty,
-  forbiddenTopics: z.array(nonEmpty).default([]),
+  systemPrompt: nonEmpty.max(4000),
+  answerStyle: nonEmpty.max(1000),
+  outOfScope: nonEmpty.max(1000),
+  forbiddenTopics: z.array(nonEmpty.max(200)).max(50).default([]),
 });
 
 // Both optional: the server falls back to LLM_MODEL, then to the platform default (ADR 0008).

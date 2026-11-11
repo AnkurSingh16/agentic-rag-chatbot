@@ -81,12 +81,21 @@ export type {
 export {
   INSUFFICIENT_EVIDENCE_TEXT,
   TURN_BUDGET,
+  fitContext,
   mergeResults,
   runChat,
+  trimHistory,
 } from './agent/run-chat.js';
 export type { ChatOutcome, ModelCallRecord, RunChatOptions } from './agent/run-chat.js';
-export { CITATION, MAX_MESSAGE_CHARS, checkParagraph, guardInput } from './agent/guards.js';
-export type { ParagraphCheck } from './agent/guards.js';
+export {
+  CITATION,
+  MAX_MESSAGE_CHARS,
+  SHINGLE_WORDS,
+  checkParagraph,
+  guardInput,
+  instructionShingles,
+} from './agent/guards.js';
+export type { OutputPolicy, ParagraphCheck, ParagraphFailure } from './agent/guards.js';
 export type { ChatEvent, FinalState, GraphNode } from './agent/events.js';
 
 export { hasPermission, resolveAccessTags, resolvePermissions } from './access/access.js';
