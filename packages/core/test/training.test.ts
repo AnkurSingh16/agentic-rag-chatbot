@@ -247,6 +247,67 @@ describe('train', () => {
     expect(store.calls).toEqual([]);
   });
 
+  it('takes rbac tags from text-file front-matter and HTML meta tags, and fails closed without them', async () => {
+    const rbac = {
+      mode: 'rbac',
+      issuer: 'https://login.example.com/',
+      audience: 'help',
+      roleClaim: 'roles',
+      roles: { member: ['docs:read:faq', 'docs:read:staff'] },
+    } as const;
+    const dir = await instanceDir({ 'data/notes.txt': '---\naccess: [staff]\n---\nShift notes.' });
+    const html = (meta: string) => () =>
+      Promise.resolve(
+        new Response(
+          `<html><head>${meta}<title>Page</title></head><body><p>Body.</p></body></html>`,
+          {
+            headers: { 'content-type': 'text/html' },
+          },
+        ),
+      );
+    const pages: Record<string, () => Promise<Response>> = {
+      'https://docs.example/tagged': html('<meta name="rag-access" content="faq">'),
+      'https://docs.example/untagged': html(''),
+    };
+    const trainWith = (urls: string[], store: MemoryStore) =>
+      train({
+        config: config({
+          auth: rbac,
+          sources: [
+            { type: 'folder', path: 'data' },
+            { type: 'urls', urls },
+          ],
+        }),
+        configHash: HASH,
+        sources: {
+          baseDir: dir,
+          fetch: (url) => pages[url]?.() ?? Promise.reject(new Error('unreachable')),
+          lookup: () => Promise.resolve([{ address: '192.0.2.10' }]),
+        },
+        store,
+        embeddings: countingEmbeddings(),
+        signal: new AbortController().signal,
+      });
+
+    const store = new MemoryStore();
+    await trainWith(['https://docs.example/tagged'], store);
+    const documents = store.versions[0]?.documents.map((entry) => entry.document);
+    expect(documents?.map((d) => [d.sourceUri, d.accessTags])).toEqual([
+      ['data/notes.txt', ['staff']],
+      ['https://docs.example/tagged', ['faq']],
+    ]);
+    const notes = store.versions[0]?.documents[0]?.chunks[0]?.content;
+    expect(notes).toContain('Shift notes.');
+    expect(notes).not.toContain('access');
+
+    const untagged = new MemoryStore();
+    const error = await failure(
+      trainWith(['https://docs.example/tagged', 'https://docs.example/untagged'], untagged),
+    );
+    expect(error.message).toContain('missing in: https://docs.example/untagged');
+    expect(untagged.calls).toEqual([]);
+  });
+
   it('rejects tags other than public on a public instance', async () => {
     const dir = await instanceDir({ 'data/a.md': '---\naccess: [internal]\n---\n# A\n\nText.' });
     const error = await failure(run(dir, new MemoryStore()));

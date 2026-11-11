@@ -3,8 +3,8 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'nod
 import type { SourceConfig } from '../config/schema.js';
 import { ChatbotError } from '../errors.js';
 import { sha256Hex } from '../hash.js';
-import { parseFrontMatter } from './front-matter.js';
-import { htmlToText } from './html.js';
+import { checkAccessTags, parseFrontMatter } from './front-matter.js';
+import { htmlToText, metaAccessContents } from './html.js';
 import { fetchPublicUrl } from './url-fetch.js';
 import type { FetchLike, LookupLike } from './url-fetch.js';
 
@@ -31,7 +31,7 @@ export interface LoadedDocument {
   text: string;
   /** sha256 of the document as read, front-matter included, so a tag change changes it. */
   contentSha256: string;
-  /** Tags from front-matter; undefined when the document has none. */
+  /** Tags from front-matter or the HTML `rag-access` meta tag; undefined when the document has none. */
   accessTags: string[] | undefined;
 }
 
@@ -94,9 +94,8 @@ async function loadFolder(path: string, access: SourceAccess, limit: number) {
     const raw = await readFile(file, 'utf8');
     const extension = extname(file).toLowerCase();
     const isMarkdown = MARKDOWN_EXTENSIONS.has(extension);
-    const { accessTags, body } = isMarkdown
-      ? parseFrontMatter(raw, sourceUri)
-      : { accessTags: undefined, body: raw };
+    // Text files take the same front-matter as markdown, so every document can carry its tags.
+    const { accessTags, body } = parseFrontMatter(raw, sourceUri);
     const fileName = basename(file, extname(file));
     documents.push({
       sourceUri,
@@ -107,6 +106,20 @@ async function loadFolder(path: string, access: SourceAccess, limit: number) {
     });
   }
   return documents;
+}
+
+function htmlAccessTags(html: string, sourceUri: string): string[] | undefined {
+  const contents = metaAccessContents(html);
+  if (contents.length === 0) return undefined;
+  // Two tags could disagree, and picking one would guess who may read the page.
+  if (contents.length > 1) {
+    throw new ChatbotError(
+      'invalid_input',
+      `${sourceUri}: more than one <meta name="rag-access"> tag`,
+    );
+  }
+  const tags = (contents[0] ?? '').split(',').map((tag) => tag.trim());
+  return checkAccessTags(tags, `${sourceUri}: <meta name="rag-access"> content`);
 }
 
 async function readCapped(response: Response, sourceUri: string, limit: number): Promise<string> {
@@ -179,12 +192,10 @@ async function loadUrl(
       title: title ?? titleFrom(text, url),
       text,
       contentSha256: sha256Hex(raw),
-      accessTags: undefined,
+      accessTags: htmlAccessTags(raw, url),
     };
   }
-  const { accessTags, body } = isMarkdown
-    ? parseFrontMatter(raw, url)
-    : { accessTags: undefined, body: raw };
+  const { accessTags, body } = parseFrontMatter(raw, url);
   return {
     sourceUri: url,
     title: isMarkdown ? titleFrom(body, url) : url,

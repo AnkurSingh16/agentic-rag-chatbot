@@ -78,7 +78,7 @@ function resolveAccessTags(config: InstanceConfig, documents: readonly LoadedDoc
       'invalid_input',
       auth.mode === 'public'
         ? `Public instance "${config.id}" can only hold documents tagged public; other tags in: ${rejected.join('; ')}`
-        : `rbac instance "${config.id}" needs access tags in the front-matter of every document; missing in: ${rejected.join(', ')}`,
+        : `rbac instance "${config.id}" needs access tags in every document (front-matter, or a rag-access meta tag in HTML); missing in: ${rejected.join(', ')}`,
     );
   }
   return tags;

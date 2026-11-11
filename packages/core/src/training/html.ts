@@ -43,6 +43,28 @@ function collapse(text: string): string {
   return decodeEntities(stripMarkup(text)).replace(/\s+/g, ' ').trim();
 }
 
+const ATTRIBUTE = /([^\s"'=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+
+/**
+ * The `content` of every `<meta name="rag-access">` tag outside comments, in
+ * document order. Attribute order, quoting and case of the name do not matter.
+ */
+export function metaAccessContents(html: string): string[] {
+  const visible = replaceUntilStable(html, /<!--[\s\S]*?-->/g, '');
+  const contents: string[] = [];
+  for (const [tag] of visible.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = new Map<string, string>();
+    for (const match of tag.matchAll(ATTRIBUTE)) {
+      const name = (match[1] ?? '').toLowerCase();
+      if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? '');
+    }
+    if (attributes.get('name')?.toLowerCase() === 'rag-access') {
+      contents.push(attributes.get('content') ?? '');
+    }
+  }
+  return contents;
+}
+
 export interface HtmlText {
   title: string | undefined;
   text: string;

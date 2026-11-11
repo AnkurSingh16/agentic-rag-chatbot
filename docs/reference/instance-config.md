@@ -75,7 +75,7 @@ Each entry has a `type`:
 | `sitemap` | `url`: http(s) URL                                    | Every page listed in the sitemap.                                   |
 | `github`  | `repo` (`owner/name`), `path`, `ref` (default `main`) | Markdown files under `path` at `ref`.                               |
 
-`ragctl train` reads `folder` and `urls` sources. `sitemap` and `github` sources pass validation but training rejects them; their loaders are planned.
+`ragctl train` reads `folder` and `urls` sources. Accepted file and content types, front-matter, the HTML `rag-access` meta tag and the tag defaults per access mode are described in [Document format](document-format.md). `sitemap` and `github` sources pass validation but training rejects them; their loaders are planned.
 
 URL sources are fetched with these limits:
 

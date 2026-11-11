@@ -43,16 +43,23 @@ export function parseFrontMatter(text: string, sourceUri: string): FrontMatter {
   }
   if (!('access' in data)) return { accessTags: undefined, body };
 
-  const access = data.access;
+  return { accessTags: checkAccessTags(data.access, `${sourceUri}: front-matter "access"`), body };
+}
+
+/**
+ * Validates access tags read from a document and returns them sorted and
+ * unique. `where` names the source of the tags in the error message.
+ */
+export function checkAccessTags(tags: unknown, where: string): string[] {
   if (
-    !Array.isArray(access) ||
-    access.length === 0 ||
-    !access.every((tag): tag is string => typeof tag === 'string' && ACCESS_TAG.test(tag))
+    !Array.isArray(tags) ||
+    tags.length === 0 ||
+    !tags.every((tag): tag is string => typeof tag === 'string' && ACCESS_TAG.test(tag))
   ) {
     throw new ChatbotError(
       'invalid_input',
-      `${sourceUri}: front-matter "access" must be a non-empty list of lower-case access tags`,
+      `${where} must be a non-empty list of lower-case access tags`,
     );
   }
-  return { accessTags: [...new Set(access)].sort(), body };
+  return [...new Set(tags)].sort();
 }

@@ -75,6 +75,19 @@ describe('folder sources', () => {
     expect(documents[0]?.contentSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('reads front-matter from text files too, keeping the file name as title', async () => {
+    const dir = await instanceDir({
+      'data/rota.txt': '---\naccess: [staff, managers]\n---\nRota for this week.',
+    });
+    const [document] = await loadDocuments(folder(), { baseDir: dir, fetch: noFetch }, signal);
+    expect(document).toMatchObject({
+      sourceUri: 'data/rota.txt',
+      title: 'rota',
+      text: 'Rota for this week.',
+      accessTags: ['managers', 'staff'],
+    });
+  });
+
   it('falls back to the file name when a markdown file has no heading', async () => {
     const dir = await instanceDir({ 'data/getting-started.md': 'Just text.' });
     const [document] = await loadDocuments(folder(), { baseDir: dir, fetch: noFetch }, signal);
@@ -151,17 +164,71 @@ describe('url sources', () => {
         'text/markdown',
       ),
       'https://x.example/a.txt': page('# not a title', 'text/plain'),
+      'https://x.example/c.txt': page('---\naccess: [staff]\n---\nPlain body.', 'text/plain'),
     });
     const documents = await loadDocuments(
-      urls('https://x.example/b.md', 'https://x.example/a.txt'),
+      urls('https://x.example/b.md', 'https://x.example/a.txt', 'https://x.example/c.txt'),
       { baseDir: '/', fetch, lookup: publicDns },
       signal,
     );
     expect(documents.map((d) => [d.sourceUri, d.title, d.accessTags])).toEqual([
       ['https://x.example/a.txt', 'https://x.example/a.txt', undefined],
       ['https://x.example/b.md', 'B title', ['faq']],
+      ['https://x.example/c.txt', 'https://x.example/c.txt', ['staff']],
     ]);
-    expect(fetch.urls).toEqual(['https://x.example/b.md', 'https://x.example/a.txt']);
+    expect(documents[2]?.text).toBe('Plain body.');
+    expect(fetch.urls).toEqual([
+      'https://x.example/b.md',
+      'https://x.example/a.txt',
+      'https://x.example/c.txt',
+    ]);
+  });
+
+  it('reads access tags from a rag-access meta tag in HTML', async () => {
+    const fetch = fetchReturning({
+      'https://x.example/m1': page(
+        '<head><meta name="rag-access" content="staff, faq , staff"></head><p>One</p>',
+        'text/html',
+      ),
+      'https://x.example/m2': page(
+        "<head><META content='hr' NAME='RAG-ACCESS'/></head><p>Two</p>",
+        'text/html',
+      ),
+      'https://x.example/m3': page(
+        '<!-- <meta name="rag-access" content="hidden"> --><meta name="description" content="x"><p>Three</p>',
+        'text/html',
+      ),
+    });
+    const documents = await loadDocuments(
+      urls('https://x.example/m1', 'https://x.example/m2', 'https://x.example/m3'),
+      { baseDir: '/', fetch, lookup: publicDns },
+      signal,
+    );
+    expect(documents.map((d) => d.accessTags)).toEqual([['faq', 'staff'], ['hr'], undefined]);
+  });
+
+  it.each([
+    ['<meta name="rag-access" content="">', 'non-empty list'],
+    ['<meta name="rag-access">', 'non-empty list'],
+    ['<meta name="rag-access" content="a,,b">', 'non-empty list'],
+    ['<meta name="rag-access" content="Staff">', 'lower-case access tags'],
+    [
+      '<meta name="rag-access" content="a"><meta name="rag-access" content="b">',
+      'more than one <meta name="rag-access"> tag',
+    ],
+  ])('rejects the HTML access tag %s', async (meta, message) => {
+    const fetch = fetchReturning({
+      'https://x.example/bad': page(`<head>${meta}</head><p>x</p>`, 'text/html'),
+    });
+    const error = await failure(
+      loadDocuments(
+        urls('https://x.example/bad'),
+        { baseDir: '/', fetch, lookup: publicDns },
+        signal,
+      ),
+    );
+    expect(error.code).toBe('invalid_input');
+    expect(error.message).toContain(message);
   });
 
   it('falls back to the first heading, then the URL, for HTML without a title', async () => {
