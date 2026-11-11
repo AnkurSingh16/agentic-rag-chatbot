@@ -36,6 +36,9 @@ function formatIssues(issues: readonly z.core.$ZodIssue[]): string {
     .join('; ');
 }
 
+// Higher is stricter. An override may only move up this order (ADR 0003).
+const STRICTNESS: Readonly<Record<AccessMode, number>> = { public: 0, authenticated: 1, rbac: 2 };
+
 function applyAuthModeOverride(raw: unknown, env: Environment): void {
   if (!isRecord(raw) || typeof raw.id !== 'string' || !isRecord(raw.auth)) return;
   const variable = authModeOverrideVariable(raw.id);
@@ -49,10 +52,13 @@ function applyAuthModeOverride(raw: unknown, env: Environment): void {
     );
   }
   const configured = raw.auth.mode;
-  if (override === 'public' && (configured === 'authenticated' || configured === 'rbac')) {
+  // A missing or misspelt mode is left for schema validation to report; an
+  // override must never stand in for it.
+  if (!isAccessMode(configured)) return;
+  if (STRICTNESS[override] < STRICTNESS[configured]) {
     throw new ChatbotError(
       'invalid_config',
-      `${variable}: cannot change auth.mode from ${configured} to public (ADR 0003)`,
+      `${variable}: cannot loosen auth.mode from ${configured} to ${override}; overrides may only tighten (ADR 0003)`,
     );
   }
   raw.auth.mode = override;

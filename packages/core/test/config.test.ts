@@ -313,35 +313,45 @@ describe('loadInstanceConfig', () => {
 });
 
 describe('auth mode environment override', () => {
+  const rbacReadyAuthenticated = {
+    ...authenticatedAuth,
+    roleClaim: 'roles',
+    roles: rbacAuth.roles,
+  };
+
   it('derives the variable name from the instance id', () => {
     expect(authModeOverrideVariable('aegis-ai')).toBe('RAG_AUTH_MODE__AEGIS_AI');
   });
 
-  it('upgrades public to authenticated when the auth block has the fields', () => {
+  it('tightens public to authenticated when the auth block has the fields', () => {
     const raw = withField(['auth'], { ...authenticatedAuth, mode: 'public' });
     const { config } = load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'authenticated' });
     expect(config.auth).toEqual(authenticatedAuth);
   });
 
-  it('switches rbac to authenticated and drops fields of the other mode', () => {
-    const raw = withField(['auth'], { ...rbacAuth, defaultTags: ['members'] });
-    const { config } = load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'authenticated' });
-    expect(config.auth).toEqual(authenticatedAuth);
+  it('tightens authenticated to rbac and drops fields rbac does not use', () => {
+    const raw = withField(['auth'], rbacReadyAuthenticated);
+    const { config } = load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'rbac' });
+    expect(config.auth).toEqual({ ...rbacAuth });
   });
 
   it('changes the config hash when the effective mode changes', () => {
-    const raw = withField(['auth'], { ...rbacAuth, defaultTags: ['members'] });
-    expect(load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'authenticated' }).configHash).not.toBe(
+    const raw = withField(['auth'], rbacReadyAuthenticated);
+    expect(load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'rbac' }).configHash).not.toBe(
       load(raw).configHash,
     );
   });
 
-  it.each([['rbac'], ['authenticated']])('rejects downgrading %s to public', (mode) => {
-    const auth = mode === 'rbac' ? rbacAuth : authenticatedAuth;
+  it.each([
+    ['rbac', 'authenticated'],
+    ['rbac', 'public'],
+    ['authenticated', 'public'],
+  ])('rejects loosening %s to %s', (configured, override) => {
+    const auth = { ...rbacReadyAuthenticated, mode: configured };
     const error = expectRejected(withField(['auth'], auth), 'RAG_AUTH_MODE__PORTFOLIO', {
-      RAG_AUTH_MODE__PORTFOLIO: 'public',
+      RAG_AUTH_MODE__PORTFOLIO: override,
     });
-    expect(error.message).toContain('to public');
+    expect(error.message).toContain(`from ${configured} to ${override}`);
   });
 
   it('rejects an override value that is not a mode', () => {
@@ -352,16 +362,31 @@ describe('auth mode environment override', () => {
     expectRejected(baseConfig(), 'auth.issuer', { RAG_AUTH_MODE__PORTFOLIO: 'rbac' });
   });
 
+  it('does not let an override replace an invalid configured mode', () => {
+    const error = expectRejected(withField(['auth'], { ...rbacAuth, mode: 'RBAC' }), 'auth.mode', {
+      RAG_AUTH_MODE__PORTFOLIO: 'rbac',
+    });
+    expect(error.message).not.toContain('RAG_AUTH_MODE__PORTFOLIO');
+  });
+
+  it('does not let an override supply a missing mode', () => {
+    expectRejected(withField(['auth'], { issuer: 'https://issuer.example.com/' }), 'auth.mode', {
+      RAG_AUTH_MODE__PORTFOLIO: 'public',
+    });
+  });
+
   it('ignores empty overrides and variables for other instances', () => {
     const raw = withField(['auth'], rbacAuth);
     expect(load(raw, { RAG_AUTH_MODE__PORTFOLIO: '' }).config.auth.mode).toBe('rbac');
     expect(load(raw, { RAG_AUTH_MODE__OTHER: 'public' }).config.auth.mode).toBe('rbac');
   });
 
-  it('allows a public override on a public instance', () => {
+  it('allows an override equal to the configured mode', () => {
     expect(load(baseConfig(), { RAG_AUTH_MODE__PORTFOLIO: 'public' }).config.auth.mode).toBe(
       'public',
     );
+    const raw = withField(['auth'], rbacAuth);
+    expect(load(raw, { RAG_AUTH_MODE__PORTFOLIO: 'rbac' }).config.auth.mode).toBe('rbac');
   });
 });
 

@@ -6,7 +6,7 @@ Each chatbot instance is configured by `instances/<id>/instance.yaml`. The serve
 
 ## Rules that apply to the whole file
 
-- Unknown keys are rejected, except inside `auth` (see [Auth mode override](#auth-mode-override)). A misspelt field fails boot instead of being ignored.
+- Unknown keys are rejected, except inside `auth`, where fields the selected mode does not use are dropped (see [Auth mode override](#auth-mode-override)). A misspelt field fails boot instead of being ignored.
 - The file never contains secrets. API keys and signing secrets are read from environment variables by the server.
 - Errors name the field, for example `Invalid instance config: auth.issuer: Invalid URL`. All failing fields are reported at once.
 - `loadInstanceConfig` returns the validated config with defaults applied and a `configHash`: the sha256 of the config as JSON with object keys sorted. Key order and explicitly written defaults do not change the hash. It is stored on every index version and trace.
@@ -81,8 +81,9 @@ The loaders that read sources are planned; only the schema is implemented.
 
 A deployment can change an instance's auth mode without editing the file by setting `RAG_AUTH_MODE__<ID>`, where `<ID>` is the instance id in upper case with `-` replaced by `_` (for `aegis-ai`: `RAG_AUTH_MODE__AEGIS_AI`). An empty value is ignored.
 
-- Changing `rbac` or `authenticated` to `public` is rejected and fails boot (ADR 0003). Any other change is allowed.
-- The override replaces only `auth.mode`. The `auth` block must already contain the fields the new mode requires. For this reason `auth` accepts fields of other modes and drops them after validation, so one block can serve two modes.
+- Overrides may only tighten access, in the order `public` < `authenticated` < `rbac` (ADR 0003). Loosening (`rbac` to `authenticated`, `rbac` to `public`, `authenticated` to `public`) is rejected and fails boot.
+- The override applies only when the file's `auth.mode` is itself one of the three modes. A missing or misspelt mode is reported as a schema error; the override never supplies it.
+- The override replaces only `auth.mode`, and the result is validated like any other config. To allow tightening, the `auth` block must already contain the stricter mode's fields, for example `roleClaim` and `roles` in an `authenticated` block that a deployment switches to `rbac`. Fields the effective mode does not use are dropped after validation. Write only the fields of the configured mode unless a deployment needs to tighten it.
 - The config hash is computed after the override, so it records the mode actually in effect.
 
 ## Boot safety checks
