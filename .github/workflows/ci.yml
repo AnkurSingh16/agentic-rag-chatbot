@@ -37,3 +37,39 @@ jobs:
           name: coverage
           path: coverage/
           if-no-files-found: ignore
+
+  integration:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: rag_ci_admin
+          POSTGRES_PASSWORD: ci_throwaway_admin_password
+          POSTGRES_DB: rag_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag_ci_admin -d rag_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    # Throwaway credentials for the service container above; it only exists for this job.
+    env:
+      DATABASE_ADMIN_URL: postgres://rag_ci_admin:ci_throwaway_admin_password@127.0.0.1:5432/rag_test
+      RAG_RUNTIME_PASSWORD: ci_throwaway_runtime_password
+      RAG_INGEST_PASSWORD: ci_throwaway_ingest_password
+      TEST_DATABASE_ADMIN_URL: postgres://rag_ci_admin:ci_throwaway_admin_password@127.0.0.1:5432/rag_test
+      TEST_DATABASE_URL: postgres://rag_runtime:ci_throwaway_runtime_password@127.0.0.1:5432/rag_test
+      TEST_DATABASE_INGEST_URL: postgres://rag_ingest:ci_throwaway_ingest_password@127.0.0.1:5432/rag_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run migrations
+        run: npm run db:migrate
+      - run: npm run test:integration
