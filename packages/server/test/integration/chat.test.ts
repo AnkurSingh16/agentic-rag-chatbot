@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -174,8 +175,7 @@ describe('chat API against PostgreSQL', () => {
     });
     expect(follow.json()).toMatchObject({ conversationId: meta.conversationId, state: 'ANSWERED' });
 
-    const ownerKey = (await import('node:crypto'))
-      .createHash('sha256')
+    const ownerKey = createHash('sha256')
       .update(`session:${token.split('.')[2] ?? ''}`)
       .digest('hex');
     const stored = await withInstanceTransaction(
@@ -209,5 +209,55 @@ describe('chat API against PostgreSQL', () => {
       payload: { message: 'hi', conversationId: meta.conversationId },
     });
     expect(foreign.statusCode).toBe(404);
+  });
+
+  it('keeps one session out of another session conversation over HTTP', async () => {
+    const server = app();
+    const tokenOf = async () =>
+      (await server.inject({ method: 'POST', url: `/v1/instances/${instanceId}/session` })).json<{
+        token: string;
+      }>().token;
+    const ownerKeyOf = (token: string) =>
+      createHash('sha256')
+        .update(`session:${token.split('.')[2] ?? ''}`)
+        .digest('hex');
+    const post = (token: string, payload: Record<string, string>) =>
+      server.inject({
+        method: 'POST',
+        url: `/v1/instances/${instanceId}/chat`,
+        headers: { 'x-session-token': token, accept: 'application/json' },
+        payload,
+      });
+
+    const tokenA = await tokenOf();
+    const tokenB = await tokenOf();
+    const started = await post(tokenA, { message: 'How do I export notes?' });
+    const { conversationId } = started.json<{ conversationId: string }>();
+
+    const intruding = await post(tokenB, { message: 'What did we talk about?', conversationId });
+    expect(intruding.statusCode).toBe(404);
+    expect(intruding.json()).toEqual({ error: { code: 'not_found', retryable: false } });
+
+    const visible = (ownerKey: string) =>
+      withInstanceTransaction(
+        runtime,
+        { instanceId, tenantKey: '_', accessTags: [], ownerKey },
+        async (client) => {
+          const conversations = await client.query(
+            'SELECT id FROM rag.conversations WHERE id = $1',
+            [conversationId],
+          );
+          const messages = await client.query<{ content: string }>(
+            'SELECT content FROM rag.messages WHERE conversation_id = $1 ORDER BY created_at',
+            [conversationId],
+          );
+          return { conversations: conversations.rowCount, messages: messages.rows };
+        },
+      );
+    expect(await visible(ownerKeyOf(tokenB))).toEqual({ conversations: 0, messages: [] });
+    const own = await visible(ownerKeyOf(tokenA));
+    expect(own.conversations).toBe(1);
+    expect(own.messages.map((row) => row.content)[0]).toBe('How do I export notes?');
+    expect(own.messages).toHaveLength(2);
   });
 });
