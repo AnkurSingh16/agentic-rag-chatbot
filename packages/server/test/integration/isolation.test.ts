@@ -97,7 +97,8 @@ afterAll(async () => {
 function visibleChunks(access: InstanceAccess, pool = runtime): Promise<string[]> {
   return withInstanceTransaction(pool, access, async (client) => {
     const result = await client.query<{ content: string }>(
-      'SELECT content FROM rag.chunks ORDER BY content',
+      // The C collation keeps the order the same whatever the database locale is.
+      'SELECT content FROM rag.chunks ORDER BY content COLLATE "C"',
     );
     return result.rows.map((row) => row.content);
   });
