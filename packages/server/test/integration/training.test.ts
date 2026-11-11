@@ -5,7 +5,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   activateVersion,
-  createFakeEmbeddingProvider,
+  createMockEmbeddingProvider,
   loadInstanceConfig,
   train,
 } from '@agentic-rag/core';
@@ -45,10 +45,10 @@ persona:
   answerStyle: Short.
   outOfScope: I cannot help with that.
 models:
-  chat: fake-chat
+  chat: claude-haiku-5-5
 embedding:
-  provider: fake
-  model: fake-hash-v1
+  provider: mock
+  model: mock-hash-v1
 ${auth}
 allowedOrigins:
   - http://localhost:5173
@@ -75,7 +75,7 @@ async function writeFiles(dir: string, files: Record<string, string>): Promise<v
 }
 
 function countingEmbeddings(): EmbeddingProvider & { texts: number } {
-  const inner = createFakeEmbeddingProvider();
+  const inner = createMockEmbeddingProvider();
   const counter = {
     provider: inner.provider,
     model: inner.model,
@@ -102,8 +102,8 @@ function run(loaded: LoadedInstanceConfig, dir: string, embeddings = countingEmb
 
 async function passEval(instanceId: string, versionId: string): Promise<void> {
   await store.recordEvalRun(instanceId, versionId, {
-    embeddingProvider: 'fake',
-    embeddingModel: 'fake-hash-v1',
+    embeddingProvider: 'mock',
+    embeddingModel: 'mock-hash-v1',
     passed: true,
     metrics: { recallAt8: 1 },
   });
@@ -150,9 +150,9 @@ describe('training against PostgreSQL', () => {
     const version = await store.getVersion(id, first.versionId);
     expect(version).toMatchObject({
       status: 'ready',
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
-      embeddingDimensions: 1024,
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      embeddingDimensions: 384,
       configHash: loaded.configHash,
       documentCount: 2,
       chunkCount: 2,

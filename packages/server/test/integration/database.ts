@@ -37,7 +37,7 @@ export function uniqueInstanceId(prefix: string): string {
 }
 
 /** A unit vector along one axis, as a pgvector literal. */
-export function axisVector(axis: number, size = 1024): string {
+export function axisVector(axis: number, size = 384): string {
   const values = Array.from({ length: size }, (_, i) => (i === axis ? 1 : 0));
   return `[${values.join(',')}]`;
 }
@@ -91,7 +91,7 @@ export async function createReadyVersion(
     const version = await client.query<{ id: string }>(
       `INSERT INTO rag.index_versions
          (instance_id, embedding_provider, embedding_model, embedding_dimensions, chunker_hash, config_hash)
-       VALUES ($1, 'fake', 'fake-1024', 1024, $2, $2) RETURNING id`,
+       VALUES ($1, 'mock', 'mock-384', 384, $2, $2) RETURNING id`,
       [instanceId, HASH],
     );
     const versionId = version.rows[0]?.id ?? '';
@@ -158,12 +158,12 @@ export function recordEval(
   instanceId: string,
   versionId: string,
   passed: boolean,
-  model = 'fake-1024',
+  model = 'mock-384',
 ): Promise<void> {
   return ingest(pool, instanceId, async (client) => {
     await client.query(
       `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed)
-       VALUES ($1, $2, 'fake', $3, $4)`,
+       VALUES ($1, $2, 'mock', $3, $4)`,
       [instanceId, versionId, model, passed],
     );
   });

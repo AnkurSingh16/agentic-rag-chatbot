@@ -49,8 +49,8 @@ export type EvalSet = z.infer<typeof evalSetSchema>;
 export type EvalQuestion = EvalSet['questions'][number];
 
 /**
- * Parses and validates an eval set file. The evaluation harness that runs it
- * is planned (phase 3); the format is fixed now so instances can ship one.
+ * Parses and validates an eval set file. `runRetrievalEval` runs it against an
+ * index version.
  *
  * @throws ChatbotError `invalid_config` naming the offending field.
  */

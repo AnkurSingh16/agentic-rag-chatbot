@@ -12,5 +12,6 @@ Each significant design decision gets a short record: the context, the options c
 | [0005](0005-agent-graph-streaming-and-guards.md)       | Agent graph, streaming and guards            | Accepted |
 | [0006](0006-retrieval-and-embeddings.md)               | Retrieval and embeddings                     | Accepted |
 | [0007](0007-clients-and-consumer-integrations.md)      | Clients and consumer integrations            | Accepted |
+| [0008](0008-model-access-and-cost-controls.md)         | Model access and cost controls               | Accepted |
 
 To add one, copy the structure of an existing record, take the next number, and link it here in the same PR.

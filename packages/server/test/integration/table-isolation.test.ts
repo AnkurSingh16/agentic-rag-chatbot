@@ -56,7 +56,7 @@ const expectations: Record<string, Expectation> = {
     insert: (s) => [
       `INSERT INTO rag.index_versions
          (instance_id, embedding_provider, embedding_model, embedding_dimensions, chunker_hash, config_hash)
-       VALUES ($1, 'fake', 'fake-1024', 1024, $2, $2)`,
+       VALUES ($1, 'mock', 'mock-384', 384, $2, $2)`,
       [s.instanceA, HASH],
     ],
   },
@@ -64,7 +64,7 @@ const expectations: Record<string, Expectation> = {
     kind: 'instance',
     insert: (s) => [
       `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed)
-       VALUES ($1, $2, 'fake', 'fake-1024', true)`,
+       VALUES ($1, $2, 'mock', 'mock-384', true)`,
       [s.instanceA, s.versionA],
     ],
   },
@@ -157,12 +157,12 @@ beforeAll(async () => {
   const documentA = await ingest(roles.rag_ingest, instanceA, async (client) => {
     await client.query(
       `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed)
-       VALUES ($1, $2, 'fake', 'fake-1024', true)`,
+       VALUES ($1, $2, 'mock', 'mock-384', true)`,
       [instanceA, versionId],
     );
     await client.query(
       `INSERT INTO rag.embedding_cache (instance_id, model, content_sha256, embedding)
-       VALUES ($1, 'fake-1024', $2, $3::vector)`,
+       VALUES ($1, 'mock-384', $2, $3::vector)`,
       [instanceA, HASH, axisVector(1)],
     );
     const doc = await client.query<{ document_id: string }>(

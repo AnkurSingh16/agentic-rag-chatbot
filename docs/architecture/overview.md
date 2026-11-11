@@ -16,8 +16,8 @@ flowchart TB
   aegis -->|in-process plugin| plugin[packages/server plugin]
   server --> plugin
   plugin --> pg[(PostgreSQL 17 + pgvector<br/>schema rag, forced RLS)]
-  plugin --> llm[Chat model<br/>Anthropic or Ollama]
-  plugin --> emb[Embeddings<br/>Voyage or Ollama]
+  plugin --> llm[Chat model<br/>Anthropic API or mock]
+  plugin --> emb[Embeddings<br/>local MiniLM or mock]
   operator([Operator]) --> cli[ragctl]
   cli --> pg
   cli --> emb

@@ -8,9 +8,9 @@ async function storeWithVersion(): Promise<{ store: MemoryStore; versionId: stri
   const store = new MemoryStore();
   await store.ensureInstance('help');
   const versionId = await store.createIndexVersion('help', {
-    embeddingProvider: 'fake',
-    embeddingModel: 'fake-hash-v1',
-    embeddingDimensions: 1024,
+    embeddingProvider: 'mock',
+    embeddingModel: 'mock-hash-v1',
+    embeddingDimensions: 384,
     chunkerHash: HASH,
     configHash: HASH,
   });
@@ -18,7 +18,7 @@ async function storeWithVersion(): Promise<{ store: MemoryStore; versionId: stri
   return { store, versionId };
 }
 
-function evalRun(passed: boolean, model = 'fake-hash-v1', provider = 'fake') {
+function evalRun(passed: boolean, model = 'mock-hash-v1', provider = 'mock') {
   return { embeddingProvider: provider, embeddingModel: model, passed, metrics: {} };
 }
 
@@ -63,8 +63,8 @@ describe('activateVersion', () => {
   it.each([
     ['no eval run', [], 'it has no eval run'],
     ['a failed latest run', [evalRun(true), evalRun(false)], 'failed'],
-    ['another model', [evalRun(true, 'voyage-3.5')], 'used fake/voyage-3.5'],
-    ['another provider', [evalRun(true, 'fake-hash-v1', 'voyage')], 'used voyage/fake-hash-v1'],
+    ['another model', [evalRun(true, 'voyage-3.5')], 'used mock/voyage-3.5'],
+    ['another provider', [evalRun(true, 'mock-hash-v1', 'voyage')], 'used voyage/mock-hash-v1'],
   ])('refuses a version with %s', async (_label, runs, reason) => {
     const { store, versionId } = await storeWithVersion();
     for (const run of runs) await store.recordEvalRun('help', versionId, run);
@@ -184,9 +184,9 @@ describe('activateVersion', () => {
     const { store, versionId: first } = await storeWithVersion();
     await store.recordEvalRun('help', first, evalRun(true));
     const second = await store.createIndexVersion('help', {
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
-      embeddingDimensions: 1024,
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      embeddingDimensions: 384,
       chunkerHash: HASH,
       configHash: HASH,
     });

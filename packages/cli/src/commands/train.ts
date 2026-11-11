@@ -1,45 +1,44 @@
-import { ChatbotError, createFakeEmbeddingProvider, train } from '@agentic-rag/core';
-import type { EmbeddingProvider, InstanceConfig } from '@agentic-rag/core';
+import { basename, dirname, resolve } from 'node:path';
+import { ChatbotError, createEmbeddingProvider, train } from '@agentic-rag/core';
+import type { SourceAccess, SourceConfig } from '@agentic-rag/core';
 import type { CliContext } from '../context.js';
 import { checkInstanceId, loadInstance, withIngestStore } from '../context.js';
-
-// Only the fake provider exists so far; voyage and ollama clients are planned (ADR 0006).
-function embeddingProvider(context: CliContext, config: InstanceConfig): EmbeddingProvider {
-  const configured = config.embedding.provider;
-  const fromEnv = context.env.EMBEDDING_PROVIDER;
-  const requested = fromEnv === undefined || fromEnv === '' ? configured : fromEnv;
-  if (requested !== configured) {
-    throw new ChatbotError(
-      'invalid_config',
-      `EMBEDDING_PROVIDER is "${requested}" but instance "${config.id}" is configured for "${configured}"`,
-    );
-  }
-  if (requested !== 'fake') {
-    throw new ChatbotError(
-      'invalid_config',
-      `The ${requested} embedding provider is not implemented yet; only fake is available`,
-    );
-  }
-  return createFakeEmbeddingProvider({ model: config.embedding.model });
-}
 
 export async function trainCommand(
   context: CliContext,
   positionals: readonly string[],
-  instancesDir: string,
+  options: { instancesDir: string; source: string | undefined },
 ): Promise<void> {
   if (positionals.length > 1) {
-    throw new ChatbotError('invalid_input', 'Usage: ragctl train <id>');
+    throw new ChatbotError('invalid_input', 'Usage: ragctl train <id> [--source <folder>]');
   }
   const id = checkInstanceId(positionals[0]);
-  const instance = await loadInstance(context, instancesDir, id);
-  const embeddings = embeddingProvider(context, instance.config);
+  const instance = await loadInstance(context, options.instancesDir, id);
+  const embeddings = createEmbeddingProvider(context.env, instance.config);
 
-  const result = await withIngestStore(context, (store) =>
+  let sources: readonly SourceConfig[] = instance.config.sources;
+  let access: SourceAccess = { baseDir: instance.directory, fetch: context.fetch };
+  if (options.source !== undefined) {
+    // Source URIs stay relative to the folder's parent, so a folder named like the configured
+    // one (e.g. data/) keeps the URIs the eval set refers to.
+    const folder = resolve(context.cwd, options.source);
+    sources = [{ type: 'folder', path: basename(folder) }];
+    access = { baseDir: dirname(folder), fetch: context.fetch };
+  }
+
+  const result = await withIngestStore(context, ({ store }) =>
     train({
-      config: instance.config,
+      config: {
+        ...instance.config,
+        sources: [...sources],
+        embedding: {
+          ...instance.config.embedding,
+          provider: embeddings.provider,
+          model: embeddings.model,
+        },
+      },
       configHash: instance.configHash,
-      sources: { baseDir: instance.directory, fetch: context.fetch },
+      sources: access,
       store,
       embeddings,
       signal: context.signal,
@@ -54,7 +53,7 @@ export async function trainCommand(
       ? `\nDeleted old versions: ${result.prunedVersions.join(', ')}`
       : '';
   context.stdout(`Trained ${id}: version ${result.versionId} is ready
-  documents ${result.documents}, chunks ${result.chunks} (${result.embeddedChunks} embedded, ${result.reusedChunks} reused from cache)${pruned}
-Activate it with "ragctl activate ${id} ${result.versionId}" once it has a passing eval run.
+  documents ${result.documents}, chunks ${result.chunks} (${result.embeddedChunks} embedded, ${result.reusedChunks} reused from cache), embeddings ${embeddings.provider}/${embeddings.model}${pruned}
+Evaluate it with "ragctl eval ${id} ${result.versionId}", then activate it with "ragctl activate ${id} ${result.versionId}".
 `);
 }

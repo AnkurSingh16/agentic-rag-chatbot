@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-/** The single embedding dimension supported in v1 (ADR 0006). */
-export const EMBEDDING_DIMENSIONS = 1024;
+/** The single embedding dimension, matching all-MiniLM-L6-v2 (ADR 0008). */
+export const EMBEDDING_DIMENSIONS = 384;
 
 export const ACCESS_MODES = ['public', 'authenticated', 'rbac'] as const;
 
@@ -77,23 +77,41 @@ const roleMapSchema = z
   })
   .pipe(z.record(z.string().regex(ROLE_NAME, 'Invalid role name'), z.array(permissionSchema)));
 
+// Persona text goes into every model call; these caps keep the instructions within the
+// per-call input budget of the agent graph (ADR 0005).
 const personaSchema = z.strictObject({
-  systemPrompt: nonEmpty,
-  answerStyle: nonEmpty,
-  outOfScope: nonEmpty,
-  forbiddenTopics: z.array(nonEmpty).default([]),
+  systemPrompt: nonEmpty.max(4000),
+  answerStyle: nonEmpty.max(1000),
+  outOfScope: nonEmpty.max(1000),
+  forbiddenTopics: z.array(nonEmpty.max(200)).max(50).default([]),
 });
 
+// Both optional: the server falls back to LLM_MODEL, then to the platform default (ADR 0008).
 const modelsSchema = z.strictObject({
-  chat: nonEmpty,
+  chat: nonEmpty.optional(),
   router: nonEmpty.optional(),
 });
 
-const embeddingSchema = z.strictObject({
-  provider: z.enum(['voyage', 'ollama', 'fake']),
-  model: nonEmpty,
-  dimensions: z.literal(EMBEDDING_DIMENSIONS).default(EMBEDDING_DIMENSIONS),
-});
+export const EMBEDDING_PROVIDERS = ['local', 'mock'] as const;
+
+/** The model each embedding provider uses when the config names none (ADR 0008). */
+export const DEFAULT_EMBEDDING_MODELS: Readonly<
+  Record<(typeof EMBEDDING_PROVIDERS)[number], string>
+> = {
+  local: 'Xenova/all-MiniLM-L6-v2',
+  mock: 'mock-hash-v1',
+};
+
+const embeddingSchema = z
+  .strictObject({
+    provider: z.enum(EMBEDDING_PROVIDERS).default('local'),
+    model: nonEmpty.optional(),
+    dimensions: z.literal(EMBEDDING_DIMENSIONS).default(EMBEDDING_DIMENSIONS),
+  })
+  .transform((value) => ({
+    ...value,
+    model: value.model ?? DEFAULT_EMBEDDING_MODELS[value.provider],
+  }));
 
 // Auth variants strip unknown keys instead of rejecting them, so one block can
 // hold the fields for several modes and an environment override of `mode`
@@ -115,11 +133,13 @@ const authSchema = z.discriminatedUnion('mode', [
   }),
 ]);
 
+// Every limit fails closed (ADR 0008). Caps keep a typo from configuring an unbounded spend.
 const limitsSchema = z.strictObject({
-  requestsPerMinutePerIp: z.int().positive().default(20),
-  requestsPerMinutePerSession: z.int().positive().default(10),
-  dailyTokensPerIp: z.int().positive().default(50_000),
-  dailyTokensPerInstance: z.int().positive().default(1_000_000),
+  maxOutputTokens: z.int().min(64).max(4096).default(512),
+  maxTurnsPerSession: z.int().positive().max(1000).default(20),
+  requestsPerMinutePerIp: z.int().positive().max(1000).default(20),
+  dailyRequests: z.int().positive().max(1_000_000).default(500),
+  dailyRequestsPerIp: z.int().positive().max(1_000_000).default(100),
 });
 
 const themeSchema = z.strictObject({
@@ -180,8 +200,8 @@ export const instanceConfigSchema = z.strictObject({
   id: z.string().regex(INSTANCE_ID, 'Must match ^[a-z][a-z0-9-]{1,39}$'),
   displayName: nonEmpty,
   persona: personaSchema,
-  models: modelsSchema,
-  embedding: embeddingSchema,
+  models: modelsSchema.prefault({}),
+  embedding: embeddingSchema.prefault({}),
   auth: authSchema,
   allowedOrigins: z.array(originSchema).min(1),
   limits: limitsSchema.prefault({}),

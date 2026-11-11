@@ -14,23 +14,26 @@ Run it from the repository root. It reads `.env` from the current directory if t
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `migrate [--allow-remote]`                                                | Apply database migrations                                                              |
 | `init <id>`                                                               | Create `instances/<id>` with a sample config, document and eval set                    |
-| `train <id>`                                                              | Build a new index version from the instance's sources                                  |
+| `train <id> [--source <folder>]`                                          | Build a new index version from the instance's sources, or from one folder              |
+| `eval <id> [versionId] [--min-recall <0..1>]`                             | Score retrieval on the instance's eval set and record an eval run                      |
 | `versions <id> [--json]`                                                  | List index versions                                                                    |
 | `activate <id> <versionId> [--force --reason <text>] [--operator <name>]` | Serve a version; requires a passing eval run unless forced. Every activation is logged |
 
-`<id>` must match `^[a-z][a-z0-9-]{1,39}$` and, for `train`, equal the `id` in `instances/<id>/instance.yaml`.
+`<id>` must match `^[a-z][a-z0-9-]{1,39}$` and, for `train` and `eval`, equal the `id` in `instances/<id>/instance.yaml`.
 
 ### Options
 
-| Option              | Commands                                | Meaning                                                                                                                                                       |
-| ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--instances <dir>` | `init`, `train`, `versions`, `activate` | Directory holding instance folders, relative to the current directory. Default `instances`.                                                                   |
-| `-h`, `--help`      | all                                     | Print the usage text to stdout and exit 0. `ragctl`, `ragctl help` and `ragctl --help` do the same; `ragctl` with no command prints it to stderr and exits 1. |
-| `--allow-remote`    | `migrate`                               | Allow a `DATABASE_ADMIN_URL` host other than `localhost`, `127.0.0.1` or `[::1]`.                                                                             |
-| `--json`            | `versions`                              | Print the versions as a JSON array instead of a table.                                                                                                        |
-| `--force`           | `activate`                              | Skip the eval gate. Requires `--reason`.                                                                                                                      |
-| `--reason <text>`   | `activate`                              | Why the gate is skipped, at most 1,000 characters. Only accepted together with `--force`.                                                                     |
-| `--operator <name>` | `activate`                              | Who is activating, 1 to 128 characters. Default: the `USER` environment variable, or the OS user name when `USER` is not set.                                 |
+| Option              | Commands             | Meaning                                                                                                                                                       |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--instances <dir>` | all except `migrate` | Directory holding instance folders, relative to the current directory. Default `instances`.                                                                   |
+| `-h`, `--help`      | all                  | Print the usage text to stdout and exit 0. `ragctl`, `ragctl help` and `ragctl --help` do the same; `ragctl` with no command prints it to stderr and exits 1. |
+| `--allow-remote`    | `migrate`            | Allow a `DATABASE_ADMIN_URL` host other than `localhost`, `127.0.0.1` or `[::1]`.                                                                             |
+| `--source <folder>` | `train`              | Train from this folder instead of the configured sources. Source URIs are relative to the folder's parent, so a folder named `data` keeps `data/...` URIs.    |
+| `--min-recall <n>`  | `eval`               | Mean recall@8 a version needs to pass, from 0 to 1. Default `0.6`.                                                                                            |
+| `--json`            | `versions`           | Print the versions as a JSON array instead of a table.                                                                                                        |
+| `--force`           | `activate`           | Skip the eval gate. Requires `--reason`.                                                                                                                      |
+| `--reason <text>`   | `activate`           | Why the gate is skipped, at most 1,000 characters. Only accepted together with `--force`.                                                                     |
+| `--operator <name>` | `activate`           | Who is activating, 1 to 128 characters. Default: the `USER` environment variable, or the OS user name when `USER` is not set.                                 |
 
 `versions` and `activate` accept `--instances` but do not read the instance folder. `migrate` accepts only `--allow-remote` and `--help`. Unknown options and unknown commands print an error and the usage text, and exit 1.
 
@@ -40,19 +43,38 @@ Creates the `rag_migrator`, `rag_runtime` and `rag_ingest` roles if they are mis
 
 ### init
 
-Creates `instances/<id>/instance.yaml` (public mode, `fake` embedding provider), `data/welcome.md` and `evals.yaml`. Refuses to touch a directory that already exists. Needs no database.
+Creates `instances/<id>/instance.yaml` (public mode, `local` embedding provider), `data/welcome.md` and `evals.yaml`. Refuses to touch a directory that already exists. Needs no database.
 
 ### train
 
 Reads the instance's sources ([Document format](document-format.md)), chunks and embeds them, writes a new version and marks it `ready`. It never activates. Progress goes to stderr; the summary goes to stdout:
 
 ```text
-Trained demo: version 569a901a-1da4-4062-846e-8505456c1d77 is ready
-  documents 8, chunks 25 (25 embedded, 0 reused from cache)
-Activate it with "ragctl activate demo 569a901a-1da4-4062-846e-8505456c1d77" once it has a passing eval run.
+Trained demo: version 1d590c2b-ebfc-433a-be0d-f72c9d2452e9 is ready
+  documents 8, chunks 25 (25 embedded, 0 reused from cache), embeddings mock/mock-hash-v1
+Evaluate it with "ragctl eval demo 1d590c2b-ebfc-433a-be0d-f72c9d2452e9", then activate it with "ragctl activate demo 1d590c2b-ebfc-433a-be0d-f72c9d2452e9".
 ```
 
-Chunks already in the instance's embedding cache are reused. After a successful run, `ready` and `retired` versions beyond the three newest are deleted and listed as `Deleted old versions: ...`; the active version is never deleted. Only the `fake` embedding provider is implemented.
+Chunks already in the instance's embedding cache are reused. After a successful run, `ready` and `retired` versions beyond the three newest are deleted and listed as `Deleted old versions: ...`; the active version is never deleted. Embeddings come from the instance's `embedding` block, or from `EMBEDDING_PROVIDER` when it is set (`local` or `mock`). With `--source`, the config hash stored on the version is still the hash of `instance.yaml`.
+
+### eval
+
+Scores retrieval for one version against the instance's `evalSet` and records the result in `rag.eval_runs`, which the activation gate reads. Without `versionId` it uses the newest version that is not `building`. Retrieval runs as `rag_ingest` with the same hybrid query the server uses (ADR 0006); no chat model is called.
+
+- Answerable questions with `sources` score recall@8: the share of their expected source URIs found among the top 8 chunks. The version passes when the mean reaches `--min-recall` (default 0.6).
+- Unanswerable questions should retrieve nothing above the minimum score. They are counted and shown but do not decide the result, because a query that shares words with the documents can still pass the score threshold.
+
+The embedding provider and model must match the version's; otherwise it exits 1. It prints one row per question, then a summary. With mock embeddings on the demo instance (rows shortened):
+
+```text
+QUESTION              EXPECTED  RECALL  OK   RETRIEVED
+sync-delay            answer    1.00    yes  data/sync.md
+encryption-algorithm  nothing   -       no   data/getting-started.md, data/sync.md, ...
+
+Version <id>: recall@8 1.00 (minimum 0.60), unanswerable questions with no retrieval 0/2. Eval passed.
+```
+
+The eval run stores `harness`, `recallAt8`, `minRecall`, `unanswerableEmpty`, `unanswerable` and `questions` as metrics, with the embedding provider and model. A failing version exits 1 and stays `ready`.
 
 ### versions
 
@@ -66,14 +88,15 @@ On success it prints `Activated <versionId> for <id>. Previous: <versionId> (now
 
 ## Environment variables
 
-| Variable                                      | Used by                         | Meaning                                                                                       |
-| --------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
-| `DATABASE_INGEST_URL`                         | `train`, `versions`, `activate` | Connection URL for the `rag_ingest` role                                                      |
-| `DATABASE_ADMIN_URL`                          | `migrate`                       | Administrator connection URL                                                                  |
-| `RAG_RUNTIME_PASSWORD`, `RAG_INGEST_PASSWORD` | `migrate`                       | Passwords for roles the runner creates                                                        |
-| `EMBEDDING_PROVIDER`                          | `train`                         | Optional. Must equal the instance's `embedding.provider` when set.                            |
-| `RAG_AUTH_MODE__<ID>`                         | `train`                         | Optional auth mode override ([Instance configuration](instance-config.md#auth-mode-override)) |
-| `USER`                                        | `activate`                      | Default for `--operator`                                                                      |
+| Variable                                      | Used by                                 | Meaning                                                                                                         |
+| --------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_INGEST_URL`                         | `train`, `eval`, `versions`, `activate` | Connection URL for the `rag_ingest` role                                                                        |
+| `DATABASE_ADMIN_URL`                          | `migrate`                               | Administrator connection URL                                                                                    |
+| `RAG_RUNTIME_PASSWORD`, `RAG_INGEST_PASSWORD` | `migrate`                               | Passwords for roles the runner creates                                                                          |
+| `EMBEDDING_PROVIDER`                          | `train`, `eval`                         | Optional. `local` or `mock`; overrides the instance's `embedding.provider`, with that provider's default model. |
+| `MODEL_CACHE_DIR`                             | `train`, `eval`                         | Where the local embedding model is cached. Default `.cache/models`.                                             |
+| `RAG_AUTH_MODE__<ID>`                         | `train`, `eval`                         | Optional auth mode override ([Instance configuration](instance-config.md#auth-mode-override))                   |
+| `USER`                                        | `activate`                              | Default for `--operator`                                                                                        |
 
 ## Exit codes
 

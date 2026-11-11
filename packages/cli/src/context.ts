@@ -1,12 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { ChatbotError, loadInstanceConfig } from '@agentic-rag/core';
-import type { Environment, FetchLike, IngestStore, LoadedInstanceConfig } from '@agentic-rag/core';
+import type {
+  Environment,
+  FetchLike,
+  IngestStore,
+  LoadedInstanceConfig,
+  RetrievalStore,
+} from '@agentic-rag/core';
 import type { MigrateCliConfig, MigrateResult } from '@agentic-rag/server';
 
-/** An open ingest store and the function that releases its connections. */
+/** Open ingest and retrieval stores on one pool, and the function that releases it. */
 export interface StoreHandle {
   store: IngestStore;
+  retrieval: RetrievalStore;
   close(): Promise<void>;
 }
 
@@ -79,11 +86,11 @@ export function requireEnv(context: CliContext, name: string): string {
 
 export async function withIngestStore<T>(
   context: CliContext,
-  fn: (store: IngestStore) => Promise<T>,
+  fn: (handle: StoreHandle) => Promise<T>,
 ): Promise<T> {
   const handle = context.openIngestStore(requireEnv(context, 'DATABASE_INGEST_URL'));
   try {
-    return await fn(handle.store);
+    return await fn(handle);
   } finally {
     await handle.close();
   }

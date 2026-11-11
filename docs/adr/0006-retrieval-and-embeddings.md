@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The embedding providers and the 1024 dimension are superseded by [ADR 0008](0008-model-access-and-cost-controls.md); the rest stands.
 
 ## Context
 

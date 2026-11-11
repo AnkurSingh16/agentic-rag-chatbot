@@ -19,7 +19,7 @@ export async function activateCommand(
     throw new ChatbotError('invalid_input', '--reason is only used together with --force');
   }
 
-  const result = await withIngestStore(context, (store) =>
+  const result = await withIngestStore(context, ({ store }) =>
     activateVersion({
       store,
       instanceId: id,

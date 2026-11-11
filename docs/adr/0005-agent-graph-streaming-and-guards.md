@@ -60,5 +60,27 @@ A `: ping` comment goes out every 15 seconds. Clients must discard released text
 ## Consequences
 
 - First visible text arrives later than raw token streaming, by roughly one paragraph's generation time.
-- Required tests: strings planted in documents never appear in any `token` event; no `token` event ever contains the canary or a forbidden topic; forbidden topics are refused; `reset` handling in both the web and React Native clients; log redaction on pino output.
+- Required tests. In place since PR #21 (`packages/core/test/run-chat.test.ts`, `packages/server/test/unit/app.test.ts`, `apps/web-demo/test/ChatWidget.test.tsx`): an instruction planted in a document and obeyed by the model never appears in any `token` event; an answer that copies the system prompt is refused; no `token` event contains a forbidden topic and forbidden topics are refused; `reset` handling in the web client; message text and session tokens are absent from pino output; each model call stays within the per-call input budget. Outstanding (#22): no `token` event contains the canary; `reset` handling in the React Native client.
 - The `portfolio` eval set includes employment-status probes that must be refused.
+
+## Amendment (PR #21)
+
+PR #21 implements a minimal graph, mock-first: `guard_in` (length and control characters), `route_and_rewrite` as one forced tool call, hybrid retrieval, `answer`, deterministic `verify` (every citation is a server-issued ID of a retrieved chunk, every paragraph cites one, one retry with 16 chunks, then `INSUFFICIENT_EVIDENCE`), and per-paragraph `guard_out` before release, with `reset` when a later paragraph fails.
+
+`guard_out` checks each paragraph for:
+
+- the instance's `persona.forbiddenTopics`, case-insensitive;
+- phrases that appear when a model follows a planted instruction or talks about its instructions ("ignore previous instructions", "system prompt", "you are now", "new instructions:");
+- any run of eight words copied from the system prompt or the fixed rules (shorter instruction texts are matched whole).
+
+A blocked paragraph ends the turn with `REFUSED` and the instance's `outOfScope` text. These are lexical checks: a paraphrased disclosure or an obeyed instruction phrased differently passes them. That residual risk is accepted until the controls below land.
+
+Budgets: input is estimated as characters ÷ 4 and capped at 8,000 tokens per call, which keeps three calls within the 24,000-token turn budget. History is trimmed to the newest 2,000 tokens, retrieved chunks are added in rank order until the call budget is reached, and the persona fields have length caps (`systemPrompt` 4,000 characters, `answerStyle` and `outOfScope` 1,000, at most 50 forbidden topics of 200 characters). The six-step budget is not counted separately; the graph has no loop beyond the single retry.
+
+Not implemented yet:
+
+- **Canary.** A per-request canary in the system prompt would change the cached system block on every request and defeat prompt caching (ADR 0008). The alternative to evaluate is a static canary per instance, stored server-side and kept in the cached block.
+- **Lexical-overlap threshold in `verify`** between a paragraph and its cited chunks.
+- **`guard_in` injection-pattern flagging and PII detection** for log redaction.
+
+Rule: **no instance is exposed publicly until these controls are implemented; tracked in #22.**
