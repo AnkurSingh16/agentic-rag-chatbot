@@ -434,6 +434,28 @@ describe('usage counters', () => {
     expect(Number(second.global?.[0]) - Number(firstGlobal[0])).toBeGreaterThanOrEqual(5);
   });
 
+  it('caps one call at 100,000 tokens and one request, and leaves counters unchanged when over', async () => {
+    const scope = `cap:${instanceA}`;
+    const accepted = await consume([scope], 100_000, 1);
+    expect(accepted[scope]).toEqual(['100000', '1']);
+
+    for (const [tokens, requests] of [
+      [100_001, 0],
+      [0, 2],
+      ['9223372036854775807', 0],
+      [0, '9223372036854775807'],
+    ] as const) {
+      const attempt = withInstanceTransaction(runtime, access, (client) =>
+        client.query('SELECT * FROM rag.consume_usage($1, $2, $3)', [[scope], tokens, requests]),
+      );
+      expect(sqlState(await failureOf(attempt)), `${tokens} tokens, ${requests} requests`).toBe(
+        '22023',
+      );
+    }
+
+    expect((await consume([scope], 0, 0))[scope]).toEqual(['100000', '1']);
+  });
+
   it('rejects negative deltas, a missing instance context and direct writes', async () => {
     expect(sqlState(await failureOf(consume(['session:x'], -1, 0)))).toBe('22023');
     expect(sqlState(await failureOf(consume(['session:x'], 0, -1)))).toBe('22023');
