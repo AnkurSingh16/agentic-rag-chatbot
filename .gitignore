@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+# Downloaded embedding models (MODEL_CACHE_DIR)
+.cache/
 *.tsbuildinfo
 .DS_Store
 

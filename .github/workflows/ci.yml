@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Every model call in CI is mocked: no API key, no paid usage (ADR 0008).
+env:
+  LLM_PROVIDER: mock
+  EMBEDDING_PROVIDER: mock
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -73,3 +78,25 @@ jobs:
       - name: Run migrations
         run: npm run db:migrate
       - run: npm run test:integration
+
+  embedding-smoke:
+    name: Local embedding smoke test
+    # Downloads the model from Hugging Face; informative, not a required check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    env:
+      MODEL_CACHE_DIR: .cache/models
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @agentic-rag/core
+      - uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: embedding-model-all-MiniLM-L6-v2-fp32
+      - run: node scripts/embedding-smoke.mjs
