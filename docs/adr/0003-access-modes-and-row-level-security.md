@@ -53,7 +53,7 @@ The transaction commits before any model call, so no connection is held during i
 **Unsafe configurations fail boot:**
 
 - a `public` instance whose active version holds any tag other than `public`;
-- an environment override that changes `rbac` or `authenticated` to `public`;
+- an environment override that loosens the configured mode (rbac → authenticated, rbac → public, authenticated → public); overrides may only tighten;
 - `authenticated` or `rbac` without issuer or audience, or `rbac` without a role claim;
 - admin or training routes enabled for a `public` instance.
 
