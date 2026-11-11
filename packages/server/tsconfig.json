@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "types": ["node"],
+    // Type-check against core's sources so typecheck and tests don't depend on core being built
+    // first. tsconfig.build.json clears this and compiles against the built package.
+    "paths": {
+      "@agentic-rag/core": ["../core/src/index.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts", "vitest.integration.config.ts"]
+}
