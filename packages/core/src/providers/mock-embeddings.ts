@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { EMBEDDING_DIMENSIONS } from '../config/schema.js';
 import type { EmbeddingProvider, Reranker } from './types.js';
 
-export const FAKE_EMBEDDING_MODEL = 'fake-hash-v1';
+export const MOCK_EMBEDDING_MODEL = 'mock-hash-v1';
 
 const WORD = /[\p{L}\p{N}]+/gu;
 
@@ -22,13 +22,13 @@ function hashedVector(text: string): number[] {
 
 /**
  * A deterministic embedding provider for tests and offline development
- * (ADR 0006). Vectors are L2-normalised and have 1024 dimensions. It makes no
+ * (ADR 0008). Vectors are L2-normalised and have 384 dimensions. It makes no
  * network calls and has no semantic understanding beyond shared words.
  */
-export function createFakeEmbeddingProvider(options: { model?: string } = {}): EmbeddingProvider {
+export function createMockEmbeddingProvider(options: { model?: string } = {}): EmbeddingProvider {
   return {
-    provider: 'fake',
-    model: options.model ?? FAKE_EMBEDDING_MODEL,
+    provider: 'mock',
+    model: options.model ?? MOCK_EMBEDDING_MODEL,
     dimensions: EMBEDDING_DIMENSIONS,
     embed: (texts, signal) =>
       new Promise((resolve) => {

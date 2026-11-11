@@ -20,7 +20,7 @@ function baseConfig(): Raw {
       outOfScope: 'I can only answer questions about the published services.',
     },
     models: { chat: 'chat-model' },
-    embedding: { provider: 'fake', model: 'fake-hash-v1' },
+    embedding: { provider: 'mock', model: 'mock-hash-v1' },
     auth: { mode: 'public' },
     allowedOrigins: ['https://example.com'],
     sources: [{ type: 'folder', path: 'docs' }],
@@ -83,14 +83,15 @@ function withField(path: string[], value: unknown): Raw {
 describe('loadInstanceConfig', () => {
   it('applies defaults to a minimal public config', () => {
     const { config } = load(baseConfig());
-    expect(config.embedding.dimensions).toBe(1024);
+    expect(config.embedding.dimensions).toBe(384);
     expect(config.persona.forbiddenTopics).toEqual([]);
     expect(config.features).toEqual({ adminApi: false });
     expect(config.limits).toEqual({
+      maxOutputTokens: 512,
+      maxTurnsPerSession: 20,
       requestsPerMinutePerIp: 20,
-      requestsPerMinutePerSession: 10,
-      dailyTokensPerIp: 50_000,
-      dailyTokensPerInstance: 1_000_000,
+      dailyRequests: 500,
+      dailyRequestsPerIp: 100,
     });
     expect(config.chunking).toEqual({
       targetTokens: 450,
@@ -125,6 +126,19 @@ describe('loadInstanceConfig', () => {
     expect(config.sources[4]).toMatchObject({ ref: 'v1' });
     expect(config.theme?.borderRadius).toBe('0.5rem');
     expect(config.models.router).toBe('router-model');
+  });
+
+  it('defaults models and embedding when they are omitted', () => {
+    const raw = baseConfig();
+    delete raw.models;
+    delete raw.embedding;
+    const { config } = load(raw);
+    expect(config.models).toEqual({});
+    expect(config.embedding).toEqual({
+      provider: 'local',
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+    });
   });
 
   it('accepts authenticated and rbac auth blocks', () => {
@@ -178,7 +192,7 @@ describe('loadInstanceConfig', () => {
     [['displayName'], '   '],
     [['persona', 'systemPrompt'], undefined],
     [['persona', 'outOfScope'], ''],
-    [['models', 'chat'], undefined],
+    [['models', 'chat'], ''],
     [['embedding', 'model'], ''],
   ])('rejects a missing or blank %j', (path, value) => {
     expectRejected(withField(path, value), path.join('.'));
@@ -188,7 +202,7 @@ describe('loadInstanceConfig', () => {
     expectRejected(withField(['embedding', 'provider'], 'openai'), 'embedding.provider');
   });
 
-  it('rejects any embedding dimension other than 1024', () => {
+  it('rejects any embedding dimension other than 384', () => {
     expectRejected(withField(['embedding', 'dimensions'], 768), 'embedding.dimensions');
   });
 
@@ -283,9 +297,10 @@ describe('loadInstanceConfig', () => {
 
   it.each([
     ['requestsPerMinutePerIp', 0],
-    ['requestsPerMinutePerSession', -1],
-    ['dailyTokensPerIp', 1.5],
-    ['dailyTokensPerInstance', 'many'],
+    ['maxOutputTokens', 8192],
+    ['maxTurnsPerSession', -1],
+    ['dailyRequests', 1.5],
+    ['dailyRequestsPerIp', 'many'],
   ])('rejects limits.%s = %j', (key, value) => {
     expectRejected(withField(['limits', key], value), `limits.${key}`);
   });

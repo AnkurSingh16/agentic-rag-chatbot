@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FAKE_EMBEDDING_MODEL,
-  createFakeEmbeddingProvider,
+  MOCK_EMBEDDING_MODEL,
+  createMockEmbeddingProvider,
   noopReranker,
-} from '../src/providers/fake.js';
+} from '../src/providers/mock-embeddings.js';
 
 const signal = new AbortController().signal;
 
@@ -15,20 +15,20 @@ function norm(vector: readonly number[]): number {
   return Math.sqrt(cosine(vector, vector));
 }
 
-describe('createFakeEmbeddingProvider', () => {
-  const provider = createFakeEmbeddingProvider();
+describe('createMockEmbeddingProvider', () => {
+  const provider = createMockEmbeddingProvider();
 
-  it('describes itself as the fake 1024-dimension provider', () => {
-    expect(provider.provider).toBe('fake');
-    expect(provider.model).toBe(FAKE_EMBEDDING_MODEL);
-    expect(provider.dimensions).toBe(1024);
-    expect(createFakeEmbeddingProvider({ model: 'custom' }).model).toBe('custom');
+  it('describes itself as the mock 384-dimension provider', () => {
+    expect(provider.provider).toBe('mock');
+    expect(provider.model).toBe(MOCK_EMBEDDING_MODEL);
+    expect(provider.dimensions).toBe(384);
+    expect(createMockEmbeddingProvider({ model: 'custom' }).model).toBe('custom');
   });
 
-  it('returns one 1024-dimension vector per text, in order', async () => {
+  it('returns one 384-dimension vector per text, in order', async () => {
     const vectors = await provider.embed(['alpha', 'beta', 'gamma'], signal);
     expect(vectors).toHaveLength(3);
-    for (const vector of vectors) expect(vector).toHaveLength(1024);
+    for (const vector of vectors) expect(vector).toHaveLength(384);
     const [alpha] = await provider.embed(['alpha'], signal);
     expect(vectors[0]).toEqual(alpha);
   });
@@ -36,7 +36,7 @@ describe('createFakeEmbeddingProvider', () => {
   it('is deterministic across calls and provider instances', async () => {
     const text = 'How do I reset my password?';
     const first = await provider.embed([text], signal);
-    const second = await createFakeEmbeddingProvider().embed([text], signal);
+    const second = await createMockEmbeddingProvider().embed([text], signal);
     expect(second).toEqual(first);
   });
 

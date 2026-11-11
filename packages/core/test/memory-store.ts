@@ -1,4 +1,4 @@
-import { evalGateFailure } from '../src/index.js';
+import { RETRIEVAL, evalGateFailure } from '../src/index.js';
 import type {
   ActivationRequest,
   ChunkRecord,
@@ -6,6 +6,7 @@ import type {
   IndexVersionSummary,
   IngestStore,
   NewEvalRun,
+  RetrievalStore,
 } from '../src/index.js';
 
 interface StoredVersion extends IndexVersionSummary {
@@ -181,4 +182,55 @@ export class MemoryStore implements IngestStore {
       this.versions.find((v) => v.instanceId === instanceId && v.id === versionId),
     );
   }
+}
+
+function cosine(a: readonly number[], b: readonly number[]): number {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += (a[i] ?? 0) * (b[i] ?? 0);
+  return dot;
+}
+
+/**
+ * A vector-only RetrievalStore over a MemoryStore's chunks, using the same similarity floor as
+ * the PostgreSQL store. Scores are cosine similarities rather than fused ranks.
+ */
+export function memoryRetrieval(store: MemoryStore): RetrievalStore {
+  return {
+    activeVersion: (access) => {
+      const version = store.versions.find(
+        (v) => v.instanceId === access.instanceId && v.status === 'active',
+      );
+      return Promise.resolve(
+        version && {
+          id: version.id,
+          embeddingProvider: version.embeddingProvider,
+          embeddingModel: version.embeddingModel,
+        },
+      );
+    },
+    search: (access, versionId, queries) => {
+      const version = store.versions.find(
+        (v) => v.instanceId === access.instanceId && v.id === versionId,
+      );
+      const chunks = (version?.documents ?? []).flatMap(({ document, chunks: list }) =>
+        list.map((chunk) => ({ document, chunk })),
+      );
+      return Promise.resolve(
+        queries.map((query) =>
+          chunks
+            .map(({ document, chunk }) => ({
+              chunkId: `${document.sourceUri}#${chunk.ordinal}`,
+              sourceUri: document.sourceUri,
+              title: document.title,
+              headingPath: [...chunk.headingPath],
+              content: chunk.content,
+              score: cosine(query.embedding, chunk.embedding),
+            }))
+            .filter((result) => result.score >= 1 - RETRIEVAL.maxVectorDistance)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, query.limit),
+        ),
+      );
+    },
+  };
 }

@@ -1,5 +1,5 @@
 # Eval set for the demo instance. The questions refer to the synthetic Lumen Notes help docs in
-# data/. Format: docs/guides/create-an-instance.md. The harness that runs it is planned.
+# data/. Format: docs/guides/create-an-instance.md. Run it with `ragctl eval demo`.
 questions:
   - id: create-note
     question: How do I create a new note?

@@ -6,9 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ChatbotError,
   EMBEDDING_BATCH_SIZE,
-  createFakeEmbeddingProvider,
+  createMockEmbeddingProvider,
   instanceConfigSchema,
   loadInstanceConfig,
+  resolveEmbeddingConfig,
   train,
 } from '../src/index.js';
 import type { EmbeddingProvider, InstanceConfig, InstanceConfigInput } from '../src/index.js';
@@ -40,8 +41,8 @@ function config(overrides: Partial<InstanceConfigInput> = {}): InstanceConfig {
     id: 'help',
     displayName: 'Help',
     persona: { systemPrompt: 'Answer.', answerStyle: 'Short.', outOfScope: 'No.' },
-    models: { chat: 'fake-chat' },
-    embedding: { provider: 'fake', model: 'fake-hash-v1' },
+
+    embedding: { provider: 'mock', model: 'mock-hash-v1' },
     auth: { mode: 'public' },
     allowedOrigins: ['http://localhost:5173'],
     sources: [{ type: 'folder', path: 'data' }],
@@ -50,7 +51,7 @@ function config(overrides: Partial<InstanceConfigInput> = {}): InstanceConfig {
 }
 
 function countingEmbeddings(): EmbeddingProvider & { batches: number[] } {
-  const inner = createFakeEmbeddingProvider();
+  const inner = createMockEmbeddingProvider();
   const batches: number[] = [];
   return {
     provider: inner.provider,
@@ -120,9 +121,9 @@ describe('train', () => {
     expect(version).toMatchObject({
       instanceId: 'help',
       status: 'ready',
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
-      embeddingDimensions: 1024,
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      embeddingDimensions: 384,
       configHash: HASH,
       documentCount: 3,
       chunkCount: 3,
@@ -138,7 +139,7 @@ describe('train', () => {
       headingPath: ['Alpha'],
       content: 'Alpha\n\nFirst page.',
     });
-    expect(version?.documents[0]?.chunks[0]?.embedding).toHaveLength(1024);
+    expect(version?.documents[0]?.chunks[0]?.embedding).toHaveLength(384);
     expect(store.calls.indexOf('cacheEmbeddings')).toBeLessThan(
       store.calls.indexOf('createIndexVersion'),
     );
@@ -322,10 +323,10 @@ describe('train', () => {
 
   it('refuses an embedding provider that does not match the config', async () => {
     const dir = await instanceDir({ 'data/a.md': '# A\n\nText.' });
-    const embeddings = createFakeEmbeddingProvider({ model: 'other-model' });
+    const embeddings = createMockEmbeddingProvider({ model: 'other-model' });
     const error = await failure(run(dir, new MemoryStore(), { embeddings }));
     expect(error.code).toBe('invalid_config');
-    expect(error.message).toContain('fake/fake-hash-v1/1024');
+    expect(error.message).toContain('mock/mock-hash-v1/384');
   });
 
   it('skips documents without text and fails when nothing is left', async () => {
@@ -364,7 +365,7 @@ describe('train', () => {
   it('rejects vectors of the wrong size from the provider', async () => {
     const dir = await instanceDir({ 'data/a.md': '# A\n\nOne.' });
     const embeddings: EmbeddingProvider = {
-      ...createFakeEmbeddingProvider(),
+      ...createMockEmbeddingProvider(),
       embed: () => Promise.resolve([[1, 2, 3]]),
     };
     const error = await failure(run(dir, new MemoryStore(), { embeddings }));
@@ -374,7 +375,7 @@ describe('train', () => {
   it('wraps provider failures', async () => {
     const dir = await instanceDir({ 'data/a.md': '# A\n\nOne.' });
     const embeddings: EmbeddingProvider = {
-      ...createFakeEmbeddingProvider(),
+      ...createMockEmbeddingProvider(),
       embed: () => Promise.reject(new Error('503')),
     };
     const error = await failure(run(dir, new MemoryStore(), { embeddings }));
@@ -427,12 +428,15 @@ describe('train', () => {
     const dir = fileURLToPath(new URL('../../../instances/demo/', import.meta.url));
     const loaded = loadInstanceConfig(await readFile(join(dir, 'instance.yaml'), 'utf8'), {});
     const store = new MemoryStore();
+    const embedding = resolveEmbeddingConfig(loaded.config.embedding, {
+      EMBEDDING_PROVIDER: 'mock',
+    });
     const result = await train({
-      config: loaded.config,
+      config: { ...loaded.config, embedding },
       configHash: loaded.configHash,
       sources: { baseDir: dir, fetch: noFetch },
       store,
-      embeddings: createFakeEmbeddingProvider(),
+      embeddings: createMockEmbeddingProvider(),
       signal: new AbortController().signal,
     });
     expect(result.documents).toBe(8);

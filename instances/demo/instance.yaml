@@ -10,16 +10,16 @@ persona:
   outOfScope: I can only answer questions about the Lumen Notes help articles.
   forbiddenTopics:
     - legal or financial advice
-models:
-  chat: fake-chat
+# models.chat is omitted, so LLM_MODEL or the platform default (claude-haiku-5-5) is used.
+# EMBEDDING_PROVIDER=mock overrides the provider for offline use; serving needs the same setting.
 embedding:
-  provider: fake
-  model: fake-hash-v1
-  dimensions: 1024
+  provider: local
+  model: Xenova/all-MiniLM-L6-v2
 auth:
   mode: public
 allowedOrigins:
   - http://localhost:5173
+  - http://127.0.0.1:5173
 sources:
   - type: folder
     path: data
