@@ -16,10 +16,11 @@ A PR can merge when:
 | Workflow       | Runs on                       | What it does                                                                                |
 | -------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
 | `ci.yml`       | PRs, pushes to `main`         | Lint, format check, typecheck, unit tests with coverage thresholds, build, whitespace check |
+| `ci.yml`       | PRs, pushes to `main`         | PostgreSQL integration tests: migrations and RLS against `pgvector/pgvector:pg17`           |
 | `security.yml` | PRs, pushes to `main`, weekly | CodeQL, dependency review, gitleaks secret scan, `npm audit` (fails on high)                |
 | `pr-title.yml` | PRs                           | Conventional Commit title check                                                             |
 
-Planned: database integration tests against PostgreSQL with pgvector, retrieval evaluation gates, end-to-end tests, docs checks, release and deploy workflows.
+Planned: retrieval evaluation gates, end-to-end tests, docs checks, release and deploy workflows.
 
 ## Coverage thresholds
 

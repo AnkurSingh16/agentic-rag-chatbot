@@ -14,4 +14,4 @@ The repository is an npm workspaces monorepo. Packages under `packages/` are lib
 
 Shared TypeScript settings live in `tsconfig.base.json`. Each package has a `tsconfig.json` for type-checking (sources and tests) and a `tsconfig.build.json` that emits `dist/`.
 
-Tests sit in each package's `test/` folder and run through the root `vitest.config.ts`, which treats every package as a Vitest project.
+Tests sit in each package's `test/` folder and run through the root `vitest.config.ts`, which treats every package as a Vitest project. `packages/server` keeps unit tests in `test/unit` and PostgreSQL integration tests in `test/integration`; the latter run only through `npm run test:integration` (see [Data model](../architecture/data-model.md)).
