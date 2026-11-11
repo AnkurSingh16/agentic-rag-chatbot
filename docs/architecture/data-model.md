@@ -67,8 +67,8 @@ Every policy names its role, so a role without a policy on a table sees nothing 
 | `documents`, `chunks`                   | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                     |
 | `eval_runs`, `embedding_cache`          | none                                                                                 | read and write own instance                                                                                  |
 | `conversations`, `messages`, `feedback` | read and write where instance and `owner_key` match                                  | none                                                                                                         |
-| `usage_counters`                        | read and write own instance                                                          | none                                                                                                         |
-| `usage_global`                          | read and write when any instance context is set                                      | none                                                                                                         |
+| `usage_counters`                        | read own instance; increase only through `rag.consume_usage`                         | none                                                                                                         |
+| `usage_global`                          | read when any instance context is set; increase only through `rag.consume_usage`     | none                                                                                                         |
 
 The corpus policy, as in ADR 0003:
 
@@ -84,13 +84,13 @@ Because corpus rows can only be inserted into a `building` version and `rag_inge
 
 ## Roles
 
-| Role           | Login | Purpose                                                                                    |
-| -------------- | ----- | ------------------------------------------------------------------------------------------ |
-| `rag_migrator` | no    | Owns the schema and every object in it. Migrations run as this role.                       |
-| `rag_runtime`  | yes   | The server. Reads the corpus; writes conversations, messages, feedback and usage counters. |
-| `rag_ingest`   | yes   | Training. Writes the corpus and executes `rag.activate_index_version`.                     |
+| Role           | Login | Purpose                                                                                                                          |
+| -------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `rag_migrator` | no    | Owns the schema and every object in it. Migrations run as this role.                                                             |
+| `rag_runtime`  | yes   | The server. Reads the corpus; writes conversations, messages and feedback; increases usage counters through `rag.consume_usage`. |
+| `rag_ingest`   | yes   | Training. Writes the corpus and executes `rag.activate_index_version`.                                                           |
 
-All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit writes: `rag_runtime` can insert only `instance_id`, `owner_key` and `expires_at` into `conversations` (so `created_at` always comes from its default) and update only `expires_at`, which a CHECK keeps within 30 days of `created_at`; it can update only the counter columns of the usage tables; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
+All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit writes: `rag_runtime` can insert only `instance_id`, `owner_key` and `expires_at` into `conversations` (so `created_at` always comes from its default) and update only `expires_at`, which a CHECK keeps within 30 days of `created_at`; it has no direct write on the usage tables; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
 
 `verifyRuntimeRole(pool)` fails closed with a `ChatbotError` unless the pool logs in as `rag_runtime` with none of the rights above, no `CREATE` on the database or on schemas `public` and `rag`, and every `rag` table under forced RLS. Calling it at server boot is planned with the HTTP server (ADR 0003).
 
@@ -107,6 +107,16 @@ All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLI
 The function runs as `rag_migrator`, which forced RLS also restricts. Two policies give `rag_migrator` access to `instances` and `index_versions` of the current instance only.
 
 Not enforced by the function: the eval gate and keeping only the last three versions (ADR 0002). Both belong to `ragctl activate` and `ragctl train` (planned).
+
+## Consuming usage
+
+`rag.consume_usage(scopes text[], tokens bigint, requests bigint)` is the only way to change the usage counters (ADR 0004). It is `SECURITY DEFINER` with `search_path = pg_catalog, rag, pg_temp`, and only `rag_runtime` can execute it. It:
+
+1. Requires an instance context (`42501` otherwise) and rejects negative or NULL deltas and an empty or NULL-containing scope list (`22023`).
+2. Adds the deltas to each distinct scope of the caller's instance in `usage_counters`, and once to `usage_global`, for the current UTC day, with `INSERT ... ON CONFLICT DO UPDATE`, so concurrent replicas cannot lose an increment.
+3. Returns the new totals as rows of `(counter_scope, total_tokens, total_requests)`; the global row has a NULL `counter_scope`.
+
+Counters only grow, so a leaked runtime credential can exhaust a budget but cannot reset one. Like activation, the function runs as `rag_migrator`, and two policies limit that role to the caller's instance counters and the global counter.
 
 ## Transaction pattern
 
@@ -156,7 +166,7 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 
 - migrations apply, re-run without changes, and refuse a modified applied file;
 - the three roles have no superuser, `BYPASSRLS`, inheritance or role-management rights, and `verifyRuntimeRole` rejects the admin and ingest credentials;
-- every `rag` table has forced RLS and is owned by `rag_migrator`; every `rag` function pins `search_path` with `pg_temp` last; only `rag_ingest` can activate;
+- every `rag` table has forced RLS and is owned by `rag_migrator`; every `rag` function pins `search_path` with `pg_temp` last; only `rag_ingest` can activate and only `rag_runtime` can consume usage;
 - instance A cannot read instance B's documents or chunks;
 - a north user with tag `faq` cannot see a south chunk tagged `faq`; tags match on overlap; empty or unknown tags see nothing;
 - a missing or incomplete access context returns zero rows, including on a reused connection;
@@ -165,4 +175,5 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - activation moves the pointer and retires the previous version; rollback to a retired version works; building, already active, foreign-instance and mismatched-context activations are refused;
 - conversations, messages and feedback are visible only to their owner; another owner cannot add messages or feedback to them;
 - conversation expiry is capped at 30 days after creation, and `created_at` cannot be supplied;
+- usage counters only increase through `rag.consume_usage`; negative deltas, a missing context and direct writes are rejected;
 - a `ready` version cannot be edited or reopened by `rag_ingest`.

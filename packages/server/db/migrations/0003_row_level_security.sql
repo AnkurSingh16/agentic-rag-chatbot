@@ -61,7 +61,7 @@ CREATE POLICY schema_migrations_migrator ON rag.schema_migrations TO rag_migrato
   USING (true) WITH CHECK (true);
 
 -- rag_runtime: reads the corpus of its instance, tenant and tags; writes conversations,
--- messages, feedback and usage counters (ADR 0003, ADR 0004).
+-- messages and feedback; reads usage counters (ADR 0003, ADR 0004).
 
 CREATE POLICY instances_runtime ON rag.instances FOR SELECT TO rag_runtime
   USING (id = rag.current_instance());
@@ -91,15 +91,14 @@ CREATE POLICY feedback_runtime ON rag.feedback TO rag_runtime
   USING (instance_id = rag.current_instance() AND owner_key = rag.current_owner())
   WITH CHECK (instance_id = rag.current_instance() AND owner_key = rag.current_owner());
 
-CREATE POLICY usage_counters_runtime ON rag.usage_counters TO rag_runtime
-  USING (instance_id = rag.current_instance())
-  WITH CHECK (instance_id = rag.current_instance());
+-- Counters are read directly but only ever increased through rag.consume_usage.
+CREATE POLICY usage_counters_runtime ON rag.usage_counters FOR SELECT TO rag_runtime
+  USING (instance_id = rag.current_instance());
 
 -- The global budget spans instances, so it cannot be scoped to one. Requiring an instance
 -- context still keeps it out of reach of code that skipped the request transaction.
-CREATE POLICY usage_global_runtime ON rag.usage_global TO rag_runtime
-  USING (rag.current_instance() IS NOT NULL)
-  WITH CHECK (rag.current_instance() IS NOT NULL);
+CREATE POLICY usage_global_runtime ON rag.usage_global FOR SELECT TO rag_runtime
+  USING (rag.current_instance() IS NOT NULL);
 
 GRANT SELECT ON rag.instances, rag.index_versions, rag.documents, rag.chunks TO rag_runtime;
 -- created_at always comes from the default, so the expiry CHECK on conversations bounds every
@@ -108,8 +107,7 @@ GRANT SELECT, DELETE ON rag.conversations TO rag_runtime;
 GRANT INSERT (instance_id, owner_key, expires_at), UPDATE (expires_at) ON rag.conversations
   TO rag_runtime;
 GRANT SELECT, INSERT ON rag.messages, rag.feedback TO rag_runtime;
-GRANT SELECT, INSERT ON rag.usage_counters, rag.usage_global TO rag_runtime;
-GRANT UPDATE (tokens, requests) ON rag.usage_counters, rag.usage_global TO rag_runtime;
+GRANT SELECT ON rag.usage_counters, rag.usage_global TO rag_runtime;
 
 -- rag_ingest: writes the corpus of one instance at a time, for every tenant and tag. Corpus
 -- rows can only be added to a version that is still building, so a ready, active or retired

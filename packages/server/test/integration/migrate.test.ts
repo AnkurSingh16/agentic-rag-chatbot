@@ -123,15 +123,20 @@ describe('database roles', () => {
     }
     expect(functions.rows.filter((fn) => fn.definer).map((fn) => fn.proname)).toEqual([
       'activate_index_version',
+      'consume_usage',
     ]);
 
     const execute = await admin.query<Record<string, boolean>>(
       `SELECT has_function_privilege('rag_ingest', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS ingest_activate,
-              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS runtime_activate`,
+              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS runtime_activate,
+              has_function_privilege('rag_runtime', 'rag.consume_usage(text[], bigint, bigint)', 'EXECUTE') AS runtime_consume,
+              has_function_privilege('rag_ingest', 'rag.consume_usage(text[], bigint, bigint)', 'EXECUTE') AS ingest_consume`,
     );
     expect(execute.rows[0]).toEqual({
       ingest_activate: true,
       runtime_activate: false,
+      runtime_consume: true,
+      ingest_consume: false,
     });
   });
 });

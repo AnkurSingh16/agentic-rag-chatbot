@@ -401,3 +401,64 @@ describe('conversation lifetime', () => {
     expect(sqlState(await failureOf(backdated))).toBe('42501');
   });
 });
+
+describe('usage counters', () => {
+  const access = { instanceId: instanceA, tenantKey: '_', accessTags: ['public'] };
+  const consume = (
+    scopes: string[],
+    tokens: number,
+    requests: number,
+    context: InstanceAccess = access,
+  ) =>
+    withInstanceTransaction(runtime, context, async (client) => {
+      const result = await client.query<{
+        counter_scope: string | null;
+        total_tokens: string;
+        total_requests: string;
+      }>('SELECT * FROM rag.consume_usage($1, $2, $3)', [scopes, tokens, requests]);
+      return Object.fromEntries(
+        result.rows.map((row) => [
+          row.counter_scope ?? 'global',
+          [row.total_tokens, row.total_requests],
+        ]),
+      );
+    });
+
+  it('only increases counters, per scope and once globally', async () => {
+    const scope = `ip:${instanceA}`;
+    const first = await consume([scope, scope], 10, 1);
+    const second = await consume([scope], 5, 1);
+    expect(first[scope]).toEqual(['10', '1']);
+    expect(second[scope]).toEqual(['15', '2']);
+    const firstGlobal = first.global ?? ['0', '0'];
+    expect(Number(second.global?.[0]) - Number(firstGlobal[0])).toBeGreaterThanOrEqual(5);
+  });
+
+  it('rejects negative deltas, a missing instance context and direct writes', async () => {
+    expect(sqlState(await failureOf(consume(['session:x'], -1, 0)))).toBe('22023');
+    expect(sqlState(await failureOf(consume(['session:x'], 0, -1)))).toBe('22023');
+    expect(sqlState(await failureOf(consume([], 1, 1)))).toBe('22023');
+
+    const client = await runtime.connect();
+    try {
+      const noContext = await failureOf(
+        client.query("SELECT * FROM rag.consume_usage('{x}', 1, 1)"),
+      );
+      expect(sqlState(noContext)).toBe('42501');
+    } finally {
+      client.release();
+    }
+
+    for (const sql of [
+      'UPDATE rag.usage_counters SET tokens = 0',
+      'UPDATE rag.usage_global SET tokens = 0',
+      "INSERT INTO rag.usage_counters (instance_id, scope, day) VALUES ($1, 'x', current_date)",
+      'DELETE FROM rag.usage_global',
+    ]) {
+      const attempt = withInstanceTransaction(runtime, access, (c) =>
+        c.query(sql, sql.includes('$1') ? [instanceA] : []),
+      );
+      expect(sqlState(await failureOf(attempt)), sql).toBe('42501');
+    }
+  });
+});
