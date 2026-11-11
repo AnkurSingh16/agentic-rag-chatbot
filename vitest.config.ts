@@ -12,6 +12,8 @@ export default defineConfig({
         // Process entry point: wires env, a pg connection and stdout around readMigrateCliConfig
         // and migrate, which are unit-tested. The CI integration job runs it against PostgreSQL.
         'packages/server/src/store/migrate-cli.ts',
+        // Same for ragctl: wires env, pg pools and stdio around run(), which is unit-tested.
+        'packages/cli/src/main.ts',
       ],
       reporter: ['text', 'lcov', 'json-summary'],
       thresholds: {
