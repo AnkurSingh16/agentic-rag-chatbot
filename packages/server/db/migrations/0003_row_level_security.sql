@@ -2,22 +2,22 @@
 -- set_config(..., true). An unset setting reads as NULL, or as '' once the session has used it,
 -- and both become NULL here so every policy comparison is NULL and no row matches.
 CREATE FUNCTION rag.current_instance() RETURNS text
-LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('rag.instance_id', true), '')
 $$;
 
 CREATE FUNCTION rag.current_tenant() RETURNS text
-LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('rag.tenant_key', true), '')
 $$;
 
 CREATE FUNCTION rag.current_access_tags() RETURNS text[]
-LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$
   SELECT string_to_array(NULLIF(current_setting('rag.access_tags', true), ''), ',')
 $$;
 
 CREATE FUNCTION rag.current_owner() RETURNS text
-LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(current_setting('rag.owner_key', true), '')
 $$;
 
@@ -61,7 +61,7 @@ CREATE POLICY schema_migrations_migrator ON rag.schema_migrations TO rag_migrato
   USING (true) WITH CHECK (true);
 
 -- rag_runtime: reads the corpus of its instance, tenant and tags; writes conversations,
--- feedback and usage counters (ADR 0003, ADR 0004).
+-- messages, feedback and usage counters (ADR 0003, ADR 0004).
 
 CREATE POLICY instances_runtime ON rag.instances FOR SELECT TO rag_runtime
   USING (id = rag.current_instance());
@@ -102,8 +102,11 @@ CREATE POLICY usage_global_runtime ON rag.usage_global TO rag_runtime
   WITH CHECK (rag.current_instance() IS NOT NULL);
 
 GRANT SELECT ON rag.instances, rag.index_versions, rag.documents, rag.chunks TO rag_runtime;
-GRANT SELECT, INSERT, DELETE ON rag.conversations TO rag_runtime;
-GRANT UPDATE (expires_at) ON rag.conversations TO rag_runtime;
+-- created_at always comes from the default, so the expiry CHECK on conversations bounds every
+-- conversation's lifetime from the moment it was really created.
+GRANT SELECT, DELETE ON rag.conversations TO rag_runtime;
+GRANT INSERT (instance_id, owner_key, expires_at), UPDATE (expires_at) ON rag.conversations
+  TO rag_runtime;
 GRANT SELECT, INSERT ON rag.messages, rag.feedback TO rag_runtime;
 GRANT SELECT, INSERT ON rag.usage_counters, rag.usage_global TO rag_runtime;
 GRANT UPDATE (tokens, requests) ON rag.usage_counters, rag.usage_global TO rag_runtime;

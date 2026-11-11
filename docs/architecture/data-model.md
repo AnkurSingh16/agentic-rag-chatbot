@@ -27,7 +27,7 @@ All tables live in schema `rag`, are owned by `rag_migrator`, and have row-level
 | `documents`         | `id`                                   | Source documents of a version, with `tenant_key` and `access_tags`.                                                            |
 | `chunks`            | `id`                                   | Chunk text, generated `tsv`, `embedding vector(1024)`, `tenant_key` and `access_tags`.                                         |
 | `embedding_cache`   | `(instance_id, model, content_sha256)` | Embeddings reused by incremental training. The key includes the instance so the cache never crosses instances.                 |
-| `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject.                                                               |
+| `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject. Expires at most 30 days after creation.                       |
 | `messages`          | `id`                                   | Conversation turns; carry `owner_key` so the owner policy needs no join.                                                       |
 | `feedback`          | `id`                                   | A rating of -1 or 1 on a message, owned by the message's `owner_key`.                                                          |
 | `usage_counters`    | `(instance_id, scope, day)`            | Daily token and request counts per instance, IP prefix or session.                                                             |
@@ -54,7 +54,7 @@ Policies read four transaction-local settings through helper functions:
 | `rag.access_tags` | `rag.current_access_tags()` | Comma-separated tags, returned as `text[]` |
 | `rag.owner_key`   | `rag.current_owner()`       | Conversation owner key                     |
 
-An unset or empty setting returns NULL. A comparison with NULL is never true, so a missing setting returns no rows instead of all rows. The functions are `STABLE` and pin `search_path = pg_catalog`.
+An unset or empty setting returns NULL. A comparison with NULL is never true, so a missing setting returns no rows instead of all rows. The functions are `STABLE` and pin `search_path = pg_catalog, pg_temp`. Every function in `rag` pins its `search_path` with `pg_temp` last, so a temporary object can never shadow a catalog or `rag` name.
 
 ## Policies
 
@@ -90,13 +90,13 @@ Because corpus rows can only be inserted into a `building` version and `rag_inge
 | `rag_runtime`  | yes   | The server. Reads the corpus; writes conversations, messages, feedback and usage counters. |
 | `rag_ingest`   | yes   | Training. Writes the corpus and executes `rag.activate_index_version`.                     |
 
-All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit updates: `rag_runtime` can update only `conversations.expires_at` and the counter columns; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
+All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit writes: `rag_runtime` can insert only `instance_id`, `owner_key` and `expires_at` into `conversations` (so `created_at` always comes from its default) and update only `expires_at`, which a CHECK keeps within 30 days of `created_at`; it can update only the counter columns of the usage tables; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
 
 `verifyRuntimeRole(pool)` fails closed with a `ChatbotError` unless the pool logs in as `rag_runtime` with none of the rights above, no `CREATE` on the database or on schemas `public` and `rag`, and every `rag` table under forced RLS. Calling it at server boot is planned with the HTTP server (ADR 0003).
 
 ## Activating an index version
 
-`rag.activate_index_version(instance_id, version_id)` is the only way to change the served version. It is `SECURITY DEFINER` with `search_path = pg_catalog, rag`, and only `rag_ingest` can execute it. It:
+`rag.activate_index_version(instance_id, version_id)` is the only way to change the served version. It is `SECURITY DEFINER` with `search_path = pg_catalog, rag, pg_temp`, and only `rag_ingest` can execute it. It:
 
 1. Requires `instance_id` to equal the caller's `rag.instance_id` setting.
 2. Locks the instance row, so concurrent activations of one instance run one after the other.
@@ -137,8 +137,10 @@ In one transaction under an advisory lock, the runner:
 
 1. Creates `rag_migrator`, `rag_runtime` and `rag_ingest` if they are missing. Passwords are bound as parameters and used inside a `DO` block, so they never appear in SQL text or statement logs. Existing roles are checked and refused if unsafe, but never altered; rotate a password with `ALTER ROLE` as an administrator.
 2. Grants `rag_migrator` to the administrator if it cannot already assume it.
-3. Creates the `vector` extension in schema `public`, revokes `CREATE` on `public` from `PUBLIC`, and creates schema `rag` owned by `rag_migrator`. These steps need administrator rights, which is why they are not in the migration files: pgvector is not a trusted extension.
+3. Creates the `vector` extension in schema `public`, runs `REVOKE CREATE ON SCHEMA public FROM PUBLIC`, and creates schema `rag` owned by `rag_migrator`. These steps need administrator rights, which is why they are not in the migration files: pgvector is not a trusted extension.
 4. Switches to `rag_migrator` and applies each pending file in name order, recording its SHA-256 checksum.
+
+The `REVOKE CREATE ON SCHEMA public` step affects the whole database, not only `rag`: after it, only the owner of `public` and superusers can create objects there. It stops `rag_runtime` and `rag_ingest` from creating functions or operators in `public` that could shadow the ones queries resolve through `search_path`. PostgreSQL 15 and later already ship with this default, so on the supported PostgreSQL 17 it normally changes nothing. On a database shared with another application that still relies on creating objects in `public` as a non-owner, that application needs its own schema or an explicit grant before you run the migration.
 
 It refuses to run when an applied file is missing or its checksum changed, when a new file sorts before an applied one, or when two files share a number. Never edit an applied migration; add a new one. A migration that drops or recreates a corpus table must say so in its PR and release notes (ADR 0007).
 
@@ -154,11 +156,13 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 
 - migrations apply, re-run without changes, and refuse a modified applied file;
 - the three roles have no superuser, `BYPASSRLS`, inheritance or role-management rights, and `verifyRuntimeRole` rejects the admin and ingest credentials;
-- every `rag` table has forced RLS and is owned by `rag_migrator`; every `rag` function pins `search_path`;
+- every `rag` table has forced RLS and is owned by `rag_migrator`; every `rag` function pins `search_path` with `pg_temp` last; only `rag_ingest` can activate;
 - instance A cannot read instance B's documents or chunks;
 - a north user with tag `faq` cannot see a south chunk tagged `faq`; tags match on overlap; empty or unknown tags see nothing;
 - a missing or incomplete access context returns zero rows, including on a reused connection;
 - the HNSW index returns the nearest chunk the caller may see, not a closer one from another instance or tenant;
 - `rag_runtime` cannot write the corpus or execute activation; `rag_ingest` can write only into a `building` version and cannot activate without the function;
 - activation moves the pointer and retires the previous version; rollback to a retired version works; building, already active, foreign-instance and mismatched-context activations are refused;
-- conversations and messages are visible only to their owner.
+- conversations, messages and feedback are visible only to their owner; another owner cannot add messages or feedback to them;
+- conversation expiry is capped at 30 days after creation, and `created_at` cannot be supplied;
+- a `ready` version cannot be edited or reopened by `rag_ingest`.

@@ -11,7 +11,7 @@ CREATE POLICY index_versions_activation ON rag.index_versions TO rag_migrator
 -- Makes a ready version active, or a retired one again for rollback (ADR 0002). The previous
 -- active version becomes retired. Returns the previously active version, or NULL.
 CREATE FUNCTION rag.activate_index_version(p_instance_id text, p_version_id uuid) RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, rag AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, rag, pg_temp AS $$
 DECLARE
   v_status text;
   v_previous uuid;

@@ -108,7 +108,7 @@ describe('database roles', () => {
     }
   });
 
-  it('pins search_path on every rag function and lets only rag_ingest activate versions', async () => {
+  it('pins search_path with pg_temp last on every rag function and limits who can call definers', async () => {
     const functions = await admin.query<{
       proname: string;
       config: string[] | null;
@@ -118,16 +118,20 @@ describe('database roles', () => {
        FROM pg_proc WHERE pronamespace = 'rag'::regnamespace ORDER BY proname`,
     );
     for (const fn of functions.rows) {
-      expect(
-        fn.config?.some((setting) => setting.startsWith('search_path=pg_catalog')),
-        fn.proname,
-      ).toBe(true);
-      expect(fn.definer, fn.proname).toBe(fn.proname === 'activate_index_version');
+      const searchPath = fn.config?.find((setting) => setting.startsWith('search_path='));
+      expect(searchPath, fn.proname).toMatch(/^search_path=pg_catalog, (rag, )?pg_temp$/);
     }
+    expect(functions.rows.filter((fn) => fn.definer).map((fn) => fn.proname)).toEqual([
+      'activate_index_version',
+    ]);
+
     const execute = await admin.query<Record<string, boolean>>(
-      `SELECT has_function_privilege('rag_ingest', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS ingest,
-              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS runtime`,
+      `SELECT has_function_privilege('rag_ingest', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS ingest_activate,
+              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS runtime_activate`,
     );
-    expect(execute.rows[0]).toEqual({ ingest: true, runtime: false });
+    expect(execute.rows[0]).toEqual({
+      ingest_activate: true,
+      runtime_activate: false,
+    });
   });
 });

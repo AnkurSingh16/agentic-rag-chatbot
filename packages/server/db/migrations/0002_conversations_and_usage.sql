@@ -5,6 +5,8 @@ CREATE TABLE rag.conversations (
   owner_key text NOT NULL CHECK (length(owner_key) BETWEEN 1 AND 128),
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
+  -- Bounds how long a conversation, and the history readable with its owner key, can live.
+  CHECK (expires_at > created_at AND expires_at <= created_at + interval '30 days'),
   UNIQUE (instance_id, owner_key, id)
 );
 

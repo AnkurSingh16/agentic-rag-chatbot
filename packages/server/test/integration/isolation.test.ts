@@ -363,3 +363,41 @@ describe('conversation row-level security', () => {
     expect(sqlState(await rateAs('owner-2'))).toBe('23503');
   });
 });
+
+describe('conversation lifetime', () => {
+  it('rejects expiry more than 30 days after creation and a caller-chosen creation time', async () => {
+    const owner = {
+      instanceId: instanceA,
+      tenantKey: '_',
+      accessTags: ['public'],
+      ownerKey: 'owner-3',
+    };
+    const conversationId = await withInstanceTransaction(runtime, owner, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO rag.conversations (instance_id, owner_key, expires_at)
+         VALUES ($1, $2, now() + interval '1 day') RETURNING id`,
+        [instanceA, 'owner-3'],
+      );
+      return created.rows[0]?.id ?? '';
+    });
+
+    const extend = (interval: string) =>
+      withInstanceTransaction(runtime, owner, (client) =>
+        client.query(
+          `UPDATE rag.conversations SET expires_at = created_at + $2::interval WHERE id = $1`,
+          [conversationId, interval],
+        ),
+      );
+    expect((await extend('30 days')).rowCount).toBe(1);
+    expect(sqlState(await failureOf(extend('31 days')))).toBe('23514');
+
+    const backdated = withInstanceTransaction(runtime, owner, (client) =>
+      client.query(
+        `INSERT INTO rag.conversations (instance_id, owner_key, created_at, expires_at)
+         VALUES ($1, 'owner-3', now() + interval '1 year', now() + interval '1 year 1 day')`,
+        [instanceA],
+      ),
+    );
+    expect(sqlState(await failureOf(backdated))).toBe('42501');
+  });
+});
