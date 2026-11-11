@@ -13,13 +13,12 @@ A PR can merge when:
 
 ## Workflows
 
-| Workflow       | Runs on                                           | What it does                                                                                                                             |
-| -------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`       | PRs, pushes to `main`                             | Lint, format check, typecheck, unit tests with coverage thresholds, build, whitespace check                                              |
-| `ci.yml`       | PRs, pushes to `main`                             | PostgreSQL integration tests: migrations and RLS against `pgvector/pgvector:pg17`                                                        |
-| `security.yml` | PRs, pushes to `main`, weekly                     | CodeQL, dependency review, gitleaks secret scan, `npm audit` (fails on high)                                                             |
-| `pr-title.yml` | PRs                                               | Conventional Commit title check                                                                                                          |
-| `claude.yml`   | PRs; comments from the owner mentioning `@claude` | Automated review against the ADRs and the naysayer checklist; skipped until the `ANTHROPIC_API_KEY` secret exists. Not a required check. |
+| Workflow       | Runs on                       | What it does                                                                                |
+| -------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `ci.yml`       | PRs, pushes to `main`         | Lint, format check, typecheck, unit tests with coverage thresholds, build, whitespace check |
+| `ci.yml`       | PRs, pushes to `main`         | PostgreSQL integration tests: migrations and RLS against `pgvector/pgvector:pg17`           |
+| `security.yml` | PRs, pushes to `main`, weekly | CodeQL, dependency review, gitleaks secret scan, `npm audit` (fails on high)                |
+| `pr-title.yml` | PRs                           | Conventional Commit title check                                                             |
 
 Planned: retrieval evaluation gates, end-to-end tests, docs checks, release and deploy workflows.
 
