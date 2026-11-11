@@ -5,12 +5,12 @@ import { checkInstanceId, withIngestStore } from '../context.js';
 export async function activateCommand(
   context: CliContext,
   positionals: readonly string[],
-  options: { force: boolean; reason: string | undefined },
+  options: { force: boolean; reason: string | undefined; operator: string | undefined },
 ): Promise<void> {
   if (positionals.length !== 2) {
     throw new ChatbotError(
       'invalid_input',
-      'Usage: ragctl activate <id> <versionId> [--force --reason <text>]',
+      'Usage: ragctl activate <id> <versionId> [--force --reason <text>] [--operator <name>]',
     );
   }
   const id = checkInstanceId(positionals[0]);
@@ -26,7 +26,7 @@ export async function activateCommand(
       versionId,
       force: options.force,
       ...(options.reason === undefined ? {} : { reason: options.reason }),
-      operator: context.operator,
+      operator: options.operator ?? context.operator,
       // Structured events go to stderr so they can be collected as an audit log.
       log: (event) => {
         context.stderr(`${JSON.stringify(event)}\n`);

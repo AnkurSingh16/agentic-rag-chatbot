@@ -105,7 +105,7 @@ The evaluation harness that records eval runs is planned (phase 3), so for now e
 npx ragctl activate demo <versionId> --force --reason "local demo, no eval harness yet"
 ```
 
-The forced activation is written to stderr as a JSON event with your user name and the reason. To roll back, activate the previous version, which is now `retired`. See [Create an instance](../guides/create-an-instance.md#7-activate-and-roll-back).
+The database enforces the same gate, so `--force` is the only way past it. Every activation, forced or not, is recorded in `rag.activation_log` with the operator (your `$USER`, or `--operator <name>`) and the reason, and is also written to stderr as JSON events. To roll back, activate the previous version, which is now `retired`. See [Create an instance](../guides/create-an-instance.md#7-activate-and-roll-back).
 
 ## 8. Run the integration tests (optional)
 

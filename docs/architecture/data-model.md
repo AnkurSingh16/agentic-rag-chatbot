@@ -19,20 +19,21 @@ The integration tests create rows under random instance IDs and do not clean up,
 
 All tables live in schema `rag`, are owned by `rag_migrator`, and have row-level security enabled and forced.
 
-| Table               | Key                                    | Holds                                                                                                                          |
-| ------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `instances`         | `id` (`^[a-z][a-z0-9-]{1,39}$`)        | One row per chatbot. `active_index_version_id` points at the version being served.                                             |
-| `index_versions`    | `id` (uuid)                            | One training run: `status` (`building`, `ready`, `active`, `retired`), embedding provider, model and dimension, config hashes. |
-| `eval_runs`         | `id`                                   | Evaluation results for a version, with the embedding provider and model they ran with.                                         |
-| `documents`         | `id`                                   | Source documents of a version, with `tenant_key` and `access_tags`.                                                            |
-| `chunks`            | `id`                                   | Chunk text, generated `tsv`, `embedding vector(1024)`, `tenant_key` and `access_tags`.                                         |
-| `embedding_cache`   | `(instance_id, model, content_sha256)` | Embeddings reused by incremental training. The key includes the instance so the cache never crosses instances.                 |
-| `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject. Expires at most 30 days after creation.                       |
-| `messages`          | `id`                                   | Conversation turns; carry `owner_key` so the owner policy needs no join.                                                       |
-| `feedback`          | `id`                                   | A rating of -1 or 1 on a message, owned by the message's `owner_key`.                                                          |
-| `usage_counters`    | `(instance_id, scope, day)`            | Daily token and request counts per instance, IP prefix or session.                                                             |
-| `usage_global`      | `day`                                  | Daily token and request counts across all instances.                                                                           |
-| `schema_migrations` | `name`                                 | Applied migration files and their SHA-256 checksums.                                                                           |
+| Table               | Key                                    | Holds                                                                                                                                   |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `instances`         | `id` (`^[a-z][a-z0-9-]{1,39}$`)        | One row per chatbot. `active_index_version_id` points at the version being served.                                                      |
+| `index_versions`    | `id` (uuid)                            | One training run: `status` (`building`, `ready`, `active`, `retired`), embedding provider, model and dimension, config hashes.          |
+| `eval_runs`         | `id`                                   | Evaluation results for a version, with the embedding provider and model they ran with.                                                  |
+| `activation_log`    | `id` (bigint identity)                 | One row per activation: version, `forced`, `reason`, `operator`, `activated_at`. No foreign key to the version, so it outlives pruning. |
+| `documents`         | `id`                                   | Source documents of a version, with `tenant_key` and `access_tags`.                                                                     |
+| `chunks`            | `id`                                   | Chunk text, generated `tsv`, `embedding vector(1024)`, `tenant_key` and `access_tags`.                                                  |
+| `embedding_cache`   | `(instance_id, model, content_sha256)` | Embeddings reused by incremental training. The key includes the instance so the cache never crosses instances.                          |
+| `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject. Expires at most 30 days after creation.                                |
+| `messages`          | `id`                                   | Conversation turns; carry `owner_key` so the owner policy needs no join.                                                                |
+| `feedback`          | `id`                                   | A rating of -1 or 1 on a message, owned by the message's `owner_key`.                                                                   |
+| `usage_counters`    | `(instance_id, scope, day)`            | Daily token and request counts per instance, IP prefix or session.                                                                      |
+| `usage_global`      | `day`                                  | Daily token and request counts across all instances.                                                                                    |
+| `schema_migrations` | `name`                                 | Applied migration files and their SHA-256 checksums.                                                                                    |
 
 Integrity rules enforced by constraints:
 
@@ -66,6 +67,7 @@ Every policy names its role, so a role without a policy on a table sees nothing 
 | `index_versions`                        | read own instance                                                                    | read; insert as `building`; update only while `building`, to `building` or `ready`; delete when not `active` |
 | `documents`, `chunks`                   | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                     |
 | `eval_runs`, `embedding_cache`          | none                                                                                 | read and write own instance                                                                                  |
+| `activation_log`                        | none                                                                                 | read and insert own instance; `activated_at` always comes from its default                                   |
 | `conversations`, `messages`, `feedback` | read and write where instance and `owner_key` match                                  | none                                                                                                         |
 | `usage_counters`                        | read own instance; increase only through `rag.consume_usage`                         | none                                                                                                         |
 | `usage_global`                          | read when any instance context is set; increase only through `rag.consume_usage`     | none                                                                                                         |
@@ -88,7 +90,7 @@ Because corpus rows can only be inserted into a `building` version and `rag_inge
 | -------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `rag_migrator` | no    | Owns the schema and every object in it. Migrations run as this role.                                                             |
 | `rag_runtime`  | yes   | The server. Reads the corpus; writes conversations, messages and feedback; increases usage counters through `rag.consume_usage`. |
-| `rag_ingest`   | yes   | Training. Writes the corpus and executes `rag.activate_index_version`.                                                           |
+| `rag_ingest`   | yes   | Training. Writes the corpus, records eval runs and executes `rag.activate_index_version`.                                        |
 
 All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit writes: `rag_runtime` can insert only `instance_id`, `owner_key` and `expires_at` into `conversations` (so `created_at` always comes from its default) and update only `expires_at`, which a CHECK keeps within 30 days of `created_at`; it has no direct write on the usage tables; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
 
@@ -96,17 +98,22 @@ All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLI
 
 ## Activating an index version
 
-`rag.activate_index_version(instance_id, version_id)` is the only way to change the served version. It is `SECURITY DEFINER` with `search_path = pg_catalog, rag, pg_temp`, and only `rag_ingest` can execute it. It:
+`rag.activate_index_version(instance_id, version_id, force, reason, operator)` is the only way to change the served version. It is `SECURITY DEFINER` with `search_path = pg_catalog, rag, pg_temp`, and only `rag_ingest` can execute it. It:
 
-1. Requires `instance_id` to equal the caller's `rag.instance_id` setting.
-2. Locks the instance row, so concurrent activations of one instance run one after the other.
-3. Accepts a `ready` version, or a `retired` one for rollback.
-4. Marks the active version `retired`, the new one `active`, and moves `instances.active_index_version_id`.
-5. Returns the previously active version ID, or NULL.
+1. Requires `instance_id` to equal the caller's `rag.instance_id` setting (`42501`).
+2. Requires a non-NULL `force` and a non-blank `operator`, and a non-blank `reason` when `force` is true (`22023`).
+3. Locks the instance row, so concurrent activations of one instance run one after the other.
+4. Accepts a `ready` version, or a `retired` one for rollback (`55000` otherwise).
+5. Unless `force` is true, enforces the eval gate (ADR 0002): the version's latest `eval_runs` row, by `created_at` then `id`, must have `passed = true` and the version's own embedding provider and model (`55000` otherwise, with a message starting `eval gate:`).
+6. Marks the active version `retired`, the new one `active`, and moves `instances.active_index_version_id`.
+7. Inserts a row into `activation_log` with `forced`, the trimmed `reason` (NULL when blank) and the trimmed `operator`.
+8. Returns the previously active version ID, or NULL.
 
-The function runs as `rag_migrator`, which forced RLS also restricts. Two policies give `rag_migrator` access to `instances` and `index_versions` of the current instance only.
+The function runs as `rag_migrator`, which forced RLS also restricts. Policies give `rag_migrator` access to `instances`, `index_versions`, `eval_runs` (read) and `activation_log` (read and insert) of the current instance only. Migration 0007 dropped the earlier two-argument form, which had no gate.
 
-Not enforced by the function: the eval gate and keeping only the last three versions (ADR 0002). Both belong to `ragctl activate` and `ragctl train` (planned).
+The gate prevents accidental activation. It does not stop someone who holds the `rag_ingest` credential, because that role can also record an eval run; this is the same trust boundary as for `rag_runtime` below.
+
+Keeping only the last three versions is done by `ragctl train`, not by the database.
 
 ## Consuming usage
 
@@ -174,6 +181,7 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - the HNSW index returns the nearest chunk the caller may see, not a closer one from another instance or tenant;
 - `rag_runtime` cannot write the corpus or execute activation; `rag_ingest` can write only into a `building` version and cannot activate without the function;
 - activation moves the pointer and retires the previous version; rollback to a retired version works; building, already active, foreign-instance and mismatched-context activations are refused;
+- without `force`, activation is refused when the latest eval run is missing, failed or used another embedding model; with `force`, a missing or blank reason or operator is refused; every activation is logged, the log hides from `rag_runtime`, and `rag_ingest` cannot backdate a log row or log a forced activation without a reason; the two-argument function no longer exists;
 - conversations, messages and feedback are visible only to their owner; another owner cannot add messages or feedback to them;
 - conversation expiry is capped at 30 days after creation, and `created_at` cannot be supplied;
 - usage counters only increase through `rag.consume_usage`; negative deltas, deltas above the overflow guard, a missing context and direct writes are rejected, and calls within the guard are recorded in full;

@@ -8,7 +8,7 @@ export interface ActivateOptions {
   /** Skips the eval gate. Requires `reason`. */
   force?: boolean;
   reason?: string;
-  /** Who ran the activation; recorded with a forced activation. */
+  /** Who ran the activation; recorded with every activation. */
   operator: string;
   log: (event: Readonly<Record<string, unknown>>) => void;
 }
@@ -40,10 +40,16 @@ export function evalGateFailure(version: IndexVersionSummary): string | undefine
   return undefined;
 }
 
+// The same limits as the activation_log columns, checked here so the operator gets a clear
+// message instead of a constraint violation.
+const MAX_REASON_LENGTH = 1000;
+const MAX_OPERATOR_LENGTH = 128;
+
 /**
  * Activates a ready or retired version after checking the eval gate. Activating
  * a retired version is how a rollback is done. `force` skips the gate but needs
- * a reason, and is logged with the operator.
+ * a reason. The store enforces the same gate and records every activation with
+ * the operator; this check runs first to give a clearer message.
  *
  * @throws ChatbotError `not_found` for an unknown version, `invalid_input` when
  *   the version cannot be activated or the gate fails.
@@ -52,8 +58,21 @@ export async function activateVersion(options: ActivateOptions): Promise<Activat
   const { store, instanceId, versionId } = options;
   const force = options.force ?? false;
   const reason = options.reason?.trim() ?? '';
+  const operator = options.operator.trim();
   if (force && reason === '') {
     throw new ChatbotError('invalid_input', '--force needs --reason explaining why');
+  }
+  if (reason.length > MAX_REASON_LENGTH) {
+    throw new ChatbotError(
+      'invalid_input',
+      `--reason must be at most ${MAX_REASON_LENGTH} characters`,
+    );
+  }
+  if (operator === '' || operator.length > MAX_OPERATOR_LENGTH) {
+    throw new ChatbotError(
+      'invalid_input',
+      `The operator name must be 1 to ${MAX_OPERATOR_LENGTH} characters; pass --operator <name>`,
+    );
   }
 
   const version = await store.getVersion(instanceId, versionId);
@@ -83,19 +102,24 @@ export async function activateVersion(options: ActivateOptions): Promise<Activat
       event: 'index.activation_forced',
       instanceId,
       versionId,
-      operator: options.operator,
+      operator,
       reason,
       gate: failure ?? 'passed',
     });
   }
 
-  const previousVersionId = await store.activate(instanceId, versionId);
+  const previousVersionId = await store.activate(instanceId, versionId, {
+    force,
+    reason: reason === '' ? undefined : reason,
+    operator,
+  });
   options.log({
     event: 'index.activated',
     instanceId,
     versionId,
     previousVersionId,
     forced: force,
+    operator,
   });
   return { versionId, previousVersionId, forced: force };
 }

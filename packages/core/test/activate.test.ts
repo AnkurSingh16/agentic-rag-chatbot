@@ -52,7 +52,11 @@ describe('activateVersion', () => {
         versionId,
         previousVersionId: null,
         forced: false,
+        operator: 'ankur',
       },
+    ]);
+    expect(store.activations).toEqual([
+      { instanceId: 'help', versionId, force: false, reason: undefined, operator: 'ankur' },
     ]);
   });
 
@@ -100,6 +104,15 @@ describe('activateVersion', () => {
       reason: 'demo data, no eval harness yet',
       gate: 'it has no eval run',
     });
+    expect(store.activations).toEqual([
+      {
+        instanceId: 'help',
+        versionId,
+        force: true,
+        reason: 'demo data, no eval harness yet',
+        operator: 'ankur',
+      },
+    ]);
   });
 
   it('records a passing gate on a forced activation', async () => {
@@ -132,6 +145,39 @@ describe('activateVersion', () => {
       }),
     );
     expect(error.message).toBe('--force needs --reason explaining why');
+  });
+
+  it('refuses a reason longer than the activation log allows', async () => {
+    const { store, versionId } = await storeWithVersion();
+    const error = await failure(
+      activateVersion({
+        store,
+        instanceId: 'help',
+        versionId,
+        force: true,
+        reason: 'x'.repeat(1001),
+        operator: 'o',
+        log: () => undefined,
+      }),
+    );
+    expect(error.message).toBe('--reason must be at most 1000 characters');
+    expect(store.calls).not.toContain('activate');
+  });
+
+  it.each(['', '   ', 'o'.repeat(129)])('refuses an unusable operator name (%j)', async (name) => {
+    const { store, versionId } = await storeWithVersion();
+    await store.recordEvalRun('help', versionId, evalRun(true));
+    const error = await failure(
+      activateVersion({
+        store,
+        instanceId: 'help',
+        versionId,
+        operator: name,
+        log: () => undefined,
+      }),
+    );
+    expect(error.message).toContain('--operator');
+    expect(store.calls).not.toContain('activate');
   });
 
   it('rolls back to a retired version that passed its eval', async () => {

@@ -55,6 +55,14 @@ export interface CachedEmbedding {
   embedding: readonly number[];
 }
 
+/** Who activated a version and how; every activation is logged with it (ADR 0002). */
+export interface ActivationRequest {
+  /** Skips the eval gate. Requires `reason`. */
+  force: boolean;
+  reason: string | undefined;
+  operator: string;
+}
+
 export interface NewEvalRun {
   embeddingProvider: string;
   embeddingModel: string;
@@ -101,8 +109,16 @@ export interface IngestStore {
   /** Deletes a version that is not active, with its documents, chunks and eval runs. */
   deleteVersion(instanceId: string, versionId: string): Promise<void>;
   recordEvalRun(instanceId: string, versionId: string, run: NewEvalRun): Promise<string>;
-  /** Makes a `ready` or `retired` version active and returns the previously active version ID. */
-  activate(instanceId: string, versionId: string): Promise<string | null>;
+  /**
+   * Makes a `ready` or `retired` version active, logs the activation and
+   * returns the previously active version ID. Unless `request.force` is set,
+   * the store itself must refuse a version that fails the eval gate.
+   */
+  activate(
+    instanceId: string,
+    versionId: string,
+    request: ActivationRequest,
+  ): Promise<string | null>;
   /** All versions of the instance, newest first. */
   listVersions(instanceId: string): Promise<IndexVersionSummary[]>;
   getVersion(instanceId: string, versionId: string): Promise<IndexVersionSummary | undefined>;

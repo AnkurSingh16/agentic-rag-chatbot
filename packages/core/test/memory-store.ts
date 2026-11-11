@@ -1,4 +1,6 @@
+import { evalGateFailure } from '../src/index.js';
 import type {
+  ActivationRequest,
   ChunkRecord,
   DocumentRecord,
   IndexVersionSummary,
@@ -13,12 +15,14 @@ interface StoredVersion extends IndexVersionSummary {
 }
 
 // An in-memory IngestStore with the same state rules as the PostgreSQL one: writes only into
-// building versions, no deleting the active version, and one active version per instance.
+// building versions, no deleting the active version, one active version per instance, the eval
+// gate on activation unless forced, and a log entry for every activation.
 export class MemoryStore implements IngestStore {
   readonly instances = new Set<string>();
   readonly versions: StoredVersion[] = [];
   readonly cache = new Map<string, number[]>();
   readonly calls: string[] = [];
+  readonly activations: (ActivationRequest & { instanceId: string; versionId: string })[] = [];
   private clock = 0;
   private ids = 0;
 
@@ -139,12 +143,22 @@ export class MemoryStore implements IngestStore {
     return Promise.resolve(id);
   }
 
-  activate(instanceId: string, versionId: string): Promise<string | null> {
+  activate(
+    instanceId: string,
+    versionId: string,
+    request: ActivationRequest,
+  ): Promise<string | null> {
     this.calls.push('activate');
     const version = this.version(instanceId, versionId);
     if (version.status !== 'ready' && version.status !== 'retired') {
       throw new Error('not activatable');
     }
+    if (request.force && (request.reason ?? '').trim() === '') {
+      throw new Error('forced activation requires a reason');
+    }
+    const failure = request.force ? undefined : evalGateFailure(version);
+    if (failure !== undefined) throw new Error(`eval gate: ${failure}`);
+    this.activations.push({ ...request, instanceId, versionId });
     const previous = this.versions.find(
       (v) => v.instanceId === instanceId && v.status === 'active',
     );

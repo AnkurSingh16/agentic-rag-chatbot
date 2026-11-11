@@ -19,7 +19,7 @@ export interface CliContext {
   openIngestStore(url: string): StoreHandle;
   migrate(config: MigrateCliConfig): Promise<MigrateResult>;
   fetch: FetchLike;
-  /** Who is running the command; recorded with forced activations. */
+  /** Who is running the command when --operator is not given; recorded with every activation. */
   operator: string;
   signal: AbortSignal;
 }

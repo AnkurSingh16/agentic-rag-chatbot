@@ -38,6 +38,14 @@ const OWNER = 'owner-a';
 const HASH = 'f'.repeat(64);
 
 const expectations: Record<string, Expectation> = {
+  activation_log: {
+    kind: 'instance',
+    insert: (s) => [
+      `INSERT INTO rag.activation_log (instance_id, index_version_id, forced, operator)
+       VALUES ($1, $2, false, 'other')`,
+      [s.instanceA, s.versionA],
+    ],
+  },
   instances: {
     kind: 'instance',
     column: 'id',

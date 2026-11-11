@@ -160,6 +160,14 @@ describe('training against PostgreSQL', () => {
     });
 
     await expect(activate(id, first.versionId)).rejects.toMatchObject({ code: 'invalid_input' });
+    // The database holds the gate even for a caller that skips activateVersion.
+    const bypass = store.activate(id, first.versionId, {
+      force: false,
+      reason: undefined,
+      operator: 'x',
+    });
+    await expect(bypass).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(bypass).rejects.toThrow(/eval gate/);
     await passEval(id, first.versionId);
     expect(await activate(id, first.versionId)).toMatchObject({ previousVersionId: null });
     expect(await servedContent(id, ['public'])).toEqual([
@@ -187,6 +195,23 @@ describe('training against PostgreSQL', () => {
       (await store.listVersions(id)).map((entry) => [entry.id, entry.status]),
     );
     expect(statuses).toEqual({ [first.versionId]: 'active', [second.versionId]: 'retired' });
+
+    const log = await withInstanceTransaction(
+      ingestPool,
+      { instanceId: id, tenantKey: '_', accessTags: [] },
+      async (client) => {
+        const rows = await client.query<{ version: string; forced: boolean; operator: string }>(
+          `SELECT index_version_id AS version, forced, operator FROM rag.activation_log
+           ORDER BY id`,
+        );
+        return rows.rows;
+      },
+    );
+    expect(log).toEqual([
+      { version: first.versionId, forced: false, operator: 'integration-test' },
+      { version: second.versionId, forced: false, operator: 'integration-test' },
+      { version: first.versionId, forced: false, operator: 'integration-test' },
+    ]);
   });
 
   it('reuses cached embeddings for unchanged chunks on the next run', async () => {

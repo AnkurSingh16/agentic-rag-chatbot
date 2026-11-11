@@ -1,5 +1,6 @@
 import { ChatbotError, toChatbotError } from '@agentic-rag/core';
 import type {
+  ActivationRequest,
   CachedEmbedding,
   ChunkRecord,
   DocumentRecord,
@@ -270,12 +271,13 @@ export function createPostgresIngestStore(pool: { connect(): Promise<PooledClien
         return id;
       }),
 
-    activate: async (instanceId, versionId) => {
+    activate: async (instanceId, versionId, request: ActivationRequest) => {
       try {
         return await inInstance(instanceId, async (client) => {
+          // The function enforces the eval gate and writes rag.activation_log (migration 0007).
           const result = await client.query<{ previous: string | null }>(
-            'SELECT rag.activate_index_version($1, $2) AS previous',
-            [instanceId, versionId],
+            'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
+            [instanceId, versionId, request.force, request.reason ?? null, request.operator],
           );
           return result.rows[0]?.previous ?? null;
         });
@@ -283,7 +285,9 @@ export function createPostgresIngestStore(pool: { connect(): Promise<PooledClien
         const state = sqlState(error);
         const message = error instanceof Error ? error.message : 'activation failed';
         if (state === 'P0002') throw new ChatbotError('not_found', message, { cause: error });
-        if (state === '55000') throw new ChatbotError('invalid_input', message, { cause: error });
+        if (state === '55000' || state === '22023') {
+          throw new ChatbotError('invalid_input', message, { cause: error });
+        }
         throw toChatbotError(error);
       }
     },

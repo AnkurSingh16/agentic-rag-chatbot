@@ -210,29 +210,46 @@ describe('createPostgresIngestStore', () => {
 
   it('activates through the database function and returns the previous version', async () => {
     const { store, work } = storeWith(() => [{ previous: 'old' }]);
-    expect(await store.activate('help', VERSION)).toBe('old');
+    const forced = { force: true, reason: 'demo', operator: 'ankur' };
+    expect(await store.activate('help', VERSION, forced)).toBe('old');
     expect(work()[0]).toEqual({
-      text: 'SELECT rag.activate_index_version($1, $2) AS previous',
-      values: ['help', VERSION],
+      text: 'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
+      values: ['help', VERSION, true, 'demo', 'ankur'],
     });
     const none = storeWith(() => [{ previous: null }]);
-    expect(await none.store.activate('help', VERSION)).toBeNull();
+    const gated = { force: false, reason: undefined, operator: 'ankur' };
+    expect(await none.store.activate('help', VERSION, gated)).toBeNull();
+    expect(none.work()[0]?.values).toEqual(['help', VERSION, false, null, 'ankur']);
   });
 
   it('maps activation errors to not_found and invalid_input', async () => {
     const respond = (error: Error) => (text: string) =>
       text.includes('activate_index_version') ? error : [];
+    const request = { force: false, reason: undefined, operator: 'o' };
     const missing = storeWith(respond(databaseError('P0002', 'index version does not exist')));
-    await expect(missing.store.activate('help', VERSION)).rejects.toMatchObject({
+    await expect(missing.store.activate('help', VERSION, request)).rejects.toMatchObject({
       code: 'not_found',
       message: 'index version does not exist',
     });
     const building = storeWith(respond(databaseError('55000', 'index version is building')));
-    await expect(building.store.activate('help', VERSION)).rejects.toMatchObject({
+    await expect(building.store.activate('help', VERSION, request)).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    const gate = storeWith(
+      respond(databaseError('55000', 'eval gate: index version has no eval run')),
+    );
+    await expect(gate.store.activate('help', VERSION, request)).rejects.toMatchObject({
+      code: 'invalid_input',
+      message: 'eval gate: index version has no eval run',
+    });
+    const noReason = storeWith(
+      respond(databaseError('22023', 'forced activation requires a reason')),
+    );
+    await expect(noReason.store.activate('help', VERSION, request)).rejects.toMatchObject({
       code: 'invalid_input',
     });
     const denied = storeWith(respond(databaseError('42501', 'permission denied')));
-    await expect(denied.store.activate('help', VERSION)).rejects.toMatchObject({
+    await expect(denied.store.activate('help', VERSION, request)).rejects.toMatchObject({
       code: 'internal',
     });
   });

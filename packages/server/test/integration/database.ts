@@ -127,16 +127,44 @@ export async function createReadyVersion(
   });
 }
 
+export interface ActivationArgs {
+  force: boolean | null;
+  reason: string | null;
+  operator: string | null;
+}
+
+// Forced by default so tests about pointers and isolation need no eval run; the eval gate has
+// its own tests.
+const FORCED: ActivationArgs = { force: true, reason: 'integration test', operator: 'tester' };
+
 export function activate(
   pool: pg.Pool,
   instanceId: string,
   versionId: string,
+  args: ActivationArgs = FORCED,
 ): Promise<string | null> {
   return ingest(pool, instanceId, async (client) => {
     const result = await client.query<{ previous: string | null }>(
-      'SELECT rag.activate_index_version($1, $2) AS previous',
-      [instanceId, versionId],
+      'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
+      [instanceId, versionId, args.force, args.reason, args.operator],
     );
     return result.rows[0]?.previous ?? null;
+  });
+}
+
+/** Records an eval run for a version created by {@link createReadyVersion}. */
+export function recordEval(
+  pool: pg.Pool,
+  instanceId: string,
+  versionId: string,
+  passed: boolean,
+  model = 'fake-1024',
+): Promise<void> {
+  return ingest(pool, instanceId, async (client) => {
+    await client.query(
+      `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed)
+       VALUES ($1, $2, 'fake', $3, $4)`,
+      [instanceId, versionId, model, passed],
+    );
   });
 }

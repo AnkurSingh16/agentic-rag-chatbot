@@ -323,6 +323,27 @@ describe('ragctl activate', () => {
       reason: 'demo data',
       gate: 'it has no eval run',
     });
+    expect(h.store.activations.map((a) => [a.force, a.reason, a.operator])).toEqual([
+      [true, 'demo data', 'tester'],
+      [true, 'demo data', 'tester'],
+    ]);
+  });
+
+  it('records the operator from --operator instead of the default', async () => {
+    const h = await harness();
+    const id = await readyVersion(h.store);
+    const args = ['--force', '--reason', 'r', '--operator', 'release-bot'];
+    expect(await run(['activate', 'help', id, ...args], h.context)).toBe(0);
+    expect(h.store.activations[0]?.operator).toBe('release-bot');
+    expect(h.err()).toContain('"operator":"release-bot"');
+  });
+
+  it('refuses an empty operator name', async () => {
+    const h = await harness({}, { operator: '' });
+    const id = await readyVersion(h.store);
+    expect(await run(['activate', 'help', id, '--force', '--reason', 'r'], h.context)).toBe(1);
+    expect(h.err()).toContain('pass --operator <name>');
+    expect(h.store.versions[0]?.status).toBe('ready');
   });
 
   it('requires --reason with --force and --force with --reason', async () => {

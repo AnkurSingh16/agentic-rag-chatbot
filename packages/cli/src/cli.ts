@@ -16,8 +16,9 @@ Commands:
   init <id>                                      Create instances/<id> with a sample config, document and eval set
   train <id>                                     Build a new index version from the instance's sources
   versions <id> [--json]                         List index versions
-  activate <id> <versionId> [--force --reason <text>]
-                                                 Serve a version; requires a passing eval run unless forced
+  activate <id> <versionId> [--force --reason <text>] [--operator <name>]
+                                                 Serve a version; requires a passing eval run unless forced.
+                                                 Every activation is logged with the operator (default: $USER)
 
 Options:
   --instances <dir>  Directory holding instance folders (default: instances)
@@ -83,9 +84,14 @@ async function dispatch(context: CliContext, command: string, rest: string[]): P
         ...COMMON,
         force: { type: 'boolean', default: false },
         reason: { type: 'string' },
+        operator: { type: 'string' },
       });
       if (values.help) return false;
-      await activateCommand(context, positionals, { force: values.force, reason: values.reason });
+      await activateCommand(context, positionals, {
+        force: values.force,
+        reason: values.reason,
+        operator: values.operator,
+      });
       return true;
     }
     default:

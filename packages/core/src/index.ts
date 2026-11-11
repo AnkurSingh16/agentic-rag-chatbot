@@ -52,6 +52,7 @@ export { hasPermission, resolveAccessTags, resolvePermissions } from './access/a
 export type { AccessContext } from './access/access.js';
 
 export type {
+  ActivationRequest,
   CachedEmbedding,
   ChunkRecord,
   DocumentRecord,

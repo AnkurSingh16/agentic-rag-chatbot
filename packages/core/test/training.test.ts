@@ -335,7 +335,13 @@ describe('train', () => {
       await writeFiles(dir, { 'data/a.md': `# A\n\nRun ${i}.` });
       const result = await run(dir, store);
       ids.push(result.versionId);
-      if (i === 0) await store.activate('help', result.versionId);
+      if (i === 0) {
+        await store.activate('help', result.versionId, {
+          force: true,
+          reason: 'test',
+          operator: 'tester',
+        });
+      }
       if (i === 4) expect(result.prunedVersions).toEqual([ids[1]]);
     }
     expect(store.versions.map((v) => [v.id, v.status])).toEqual([
