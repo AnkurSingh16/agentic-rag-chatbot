@@ -3,6 +3,7 @@ import type { ParseArgsConfig } from 'node:util';
 import { isChatbotError } from '@agentic-rag/core';
 import type { ErrorCode } from '@agentic-rag/core';
 import { activateCommand } from './commands/activate.js';
+import { evalCommand } from './commands/eval.js';
 import { initCommand } from './commands/init.js';
 import { migrateCommand } from './commands/migrate.js';
 import { trainCommand } from './commands/train.js';
@@ -14,7 +15,10 @@ export const USAGE = `Usage: ragctl <command> [options]
 Commands:
   migrate [--allow-remote]                       Apply database migrations (DATABASE_ADMIN_URL)
   init <id>                                      Create instances/<id> with a sample config, document and eval set
-  train <id>                                     Build a new index version from the instance's sources
+  train <id> [--source <folder>]                 Build a new index version from the instance's sources,
+                                                 or from one folder instead of them
+  eval <id> [versionId] [--min-recall <0..1>]    Score retrieval on the eval set (default: newest version,
+                                                 minimum recall@8 0.6) and record the eval run
   versions <id> [--json]                         List index versions
   activate <id> <versionId> [--force --reason <text>] [--operator <name>]
                                                  Serve a version; requires a passing eval run unless forced.
@@ -62,12 +66,31 @@ async function dispatch(context: CliContext, command: string, rest: string[]): P
       if (rest.includes('--help') || rest.includes('-h')) return false;
       await migrateCommand(context, rest);
       return true;
-    case 'init':
-    case 'train': {
+    case 'init': {
       const { values, positionals } = parse(rest, COMMON);
       if (values.help) return false;
-      const run = command === 'init' ? initCommand : trainCommand;
-      await run(context, positionals, values.instances);
+      await initCommand(context, positionals, values.instances);
+      return true;
+    }
+    case 'train': {
+      const { values, positionals } = parse(rest, { ...COMMON, source: { type: 'string' } });
+      if (values.help) return false;
+      await trainCommand(context, positionals, {
+        instancesDir: values.instances,
+        source: values.source,
+      });
+      return true;
+    }
+    case 'eval': {
+      const { values, positionals } = parse(rest, {
+        ...COMMON,
+        'min-recall': { type: 'string' },
+      });
+      if (values.help) return false;
+      await evalCommand(context, positionals, {
+        instancesDir: values.instances,
+        minRecall: values['min-recall'],
+      });
       return true;
     }
     case 'versions': {
@@ -114,7 +137,7 @@ export async function run(args: readonly string[], context: CliContext): Promise
     context.stdout(USAGE);
     return 0;
   }
-  const known = ['migrate', 'init', 'train', 'versions', 'activate'].includes(command);
+  const known = ['migrate', 'init', 'train', 'eval', 'versions', 'activate'].includes(command);
   try {
     if (!(await dispatch(context, command, rest))) {
       context.stdout(USAGE);

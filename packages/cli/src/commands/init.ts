@@ -12,13 +12,12 @@ persona:
   systemPrompt: You answer questions using only the documents provided for this instance.
   answerStyle: Short, factual answers in plain English, with citations.
   outOfScope: I can only answer questions about the documents for this assistant.
-models:
-  chat: fake-chat
-# fake embeddings work offline and in tests. Switching provider or model needs a new training run.
+# Chat model: LLM_MODEL or claude-haiku-5-5 unless set here, e.g. models.chat: claude-sonnet-5-5.
+# Local embeddings run inside Node; EMBEDDING_PROVIDER=mock overrides them for offline use.
+# Switching provider or model needs a new training run.
 embedding:
-  provider: fake
-  model: fake-hash-v1
-  dimensions: 1024
+  provider: local
+  model: Xenova/all-MiniLM-L6-v2
 auth:
   mode: public
 allowedOrigins:
@@ -43,7 +42,7 @@ The help desk is open Monday to Friday, 9am to 5pm.
 Email the help desk at help@example.com.
 `;
 
-const SAMPLE_EVALS = `# Questions the planned evaluation harness asks this instance.
+const SAMPLE_EVALS = `# Questions that "ragctl eval" asks this instance.
 # Format: docs/guides/create-an-instance.md
 questions:
   - id: opening-hours
@@ -89,7 +88,7 @@ export async function initCommand(
   await writeFile(join(directory, 'evals.yaml'), SAMPLE_EVALS);
 
   context.stdout(`Created ${directory}
-  instance.yaml    public mode, fake providers
+  instance.yaml    public mode, local embeddings
   data/welcome.md  sample document
   evals.yaml       sample eval set
 

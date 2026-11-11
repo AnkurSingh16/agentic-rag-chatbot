@@ -36,7 +36,7 @@ export async function versionsCommand(
     throw new ChatbotError('invalid_input', 'Usage: ragctl versions <id> [--json]');
   }
   const id = checkInstanceId(positionals[0]);
-  const versions = await withIngestStore(context, (store) => store.listVersions(id));
+  const versions = await withIngestStore(context, ({ store }) => store.listVersions(id));
 
   if (json) {
     context.stdout(`${JSON.stringify(versions, null, 2)}\n`);

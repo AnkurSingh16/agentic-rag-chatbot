@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import type { MigrateCliConfig } from '@agentic-rag/server';
 import { USAGE, run } from '../src/cli.js';
 import type { CliContext } from '../src/context.js';
 import { formatTable } from '../src/commands/versions.js';
-import { MemoryStore } from '../../core/test/memory-store.js';
+import { MemoryStore, memoryRetrieval } from '../../core/test/memory-store.js';
 
 const directories: string[] = [];
 
@@ -42,7 +42,11 @@ async function harness(
     closed: 0,
     migrations: [],
     context: {
-      env: { DATABASE_INGEST_URL: 'postgres://rag_ingest:pw@127.0.0.1/rag', ...env },
+      env: {
+        DATABASE_INGEST_URL: 'postgres://rag_ingest:pw@127.0.0.1/rag',
+        EMBEDDING_PROVIDER: 'mock',
+        ...env,
+      },
       cwd,
       stdout: (text) => stdout.push(text),
       stderr: (text) => stderr.push(text),
@@ -50,6 +54,7 @@ async function harness(
         state.opened.push(url);
         return {
           store,
+          retrieval: memoryRetrieval(store),
           close: () => {
             state.closed++;
             return Promise.resolve();
@@ -72,9 +77,9 @@ async function harness(
 async function readyVersion(store: MemoryStore, instanceId = 'help'): Promise<string> {
   await store.ensureInstance(instanceId);
   const id = await store.createIndexVersion(instanceId, {
-    embeddingProvider: 'fake',
-    embeddingModel: 'fake-hash-v1',
-    embeddingDimensions: 1024,
+    embeddingProvider: 'mock',
+    embeddingModel: 'mock-hash-v1',
+    embeddingDimensions: 384,
     chunkerHash: 'a'.repeat(64),
     configHash: 'b'.repeat(64),
   });
@@ -149,7 +154,7 @@ describe('ragctl init', () => {
     expect(loaded.config).toMatchObject({
       id: 'support-bot',
       auth: { mode: 'public' },
-      embedding: { provider: 'fake', model: 'fake-hash-v1', dimensions: 1024 },
+      embedding: { provider: 'local', model: 'Xenova/all-MiniLM-L6-v2', dimensions: 384 },
       sources: [{ type: 'folder', path: 'data' }],
       evalSet: 'evals.yaml',
     });
@@ -199,24 +204,32 @@ describe('ragctl train', () => {
     expect(h.store.versions).toHaveLength(3);
   });
 
-  it('accepts EMBEDDING_PROVIDER=fake and refuses other or mismatched providers', async () => {
-    const ok = await harness({ EMBEDDING_PROVIDER: 'fake' });
+  it('applies EMBEDDING_PROVIDER over the instance config and rejects unknown providers', async () => {
+    const ok = await harness();
     await run(['init', 'help'], ok.context);
     expect(await run(['train', 'help'], ok.context)).toBe(0);
+    expect(ok.out()).toContain('embeddings mock/mock-hash-v1');
+    expect(ok.store.versions[0]).toMatchObject({
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+    });
 
-    const mismatch = await harness({ EMBEDDING_PROVIDER: 'voyage' });
-    await run(['init', 'help'], mismatch.context);
-    expect(await run(['train', 'help'], mismatch.context)).toBe(1);
-    expect(mismatch.err()).toContain('EMBEDDING_PROVIDER is "voyage" but instance "help"');
+    const unknown = await harness({ EMBEDDING_PROVIDER: 'voyage' });
+    await run(['init', 'help'], unknown.context);
+    expect(await run(['train', 'help'], unknown.context)).toBe(1);
+    expect(unknown.err()).toContain('EMBEDDING_PROVIDER must be one of local, mock');
+    expect(unknown.opened).toEqual([]);
+  });
 
-    const voyage = await harness();
-    await run(['init', 'help'], voyage.context);
-    const path = join(voyage.context.cwd, 'instances', 'help', 'instance.yaml');
-    const yaml = (await readFile(path, 'utf8')).replace('provider: fake', 'provider: voyage');
-    await writeFile(path, yaml.replace('model: fake-hash-v1', 'model: voyage-3.5'));
-    expect(await run(['train', 'help'], voyage.context)).toBe(1);
-    expect(voyage.err()).toContain('The voyage embedding provider is not implemented yet');
-    expect(voyage.opened).toEqual([]);
+  it('trains from --source instead of the configured sources', async () => {
+    const h = await harness();
+    await run(['init', 'help'], h.context);
+    const other = join(h.context.cwd, 'elsewhere', 'data');
+    await mkdir(other, { recursive: true });
+    await writeFile(join(other, 'faq.md'), '# FAQ\n\nThe office opens at nine.');
+    expect(await run(['train', 'help', '--source', 'elsewhere/data'], h.context)).toBe(0);
+    const uris = h.store.versions[0]?.documents.map((entry) => entry.document.sourceUri);
+    expect(uris).toEqual(['data/faq.md']);
   });
 
   it('fails clearly without an instance, a matching id or a database URL', async () => {
@@ -244,15 +257,15 @@ describe('ragctl versions', () => {
     const older = await readyVersion(h.store);
     const newer = await readyVersion(h.store);
     await h.store.recordEvalRun('help', newer, {
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
       passed: false,
       metrics: {},
     });
     expect(await run(['versions', 'help'], h.context)).toBe(0);
     const lines = h.out().trimEnd().split('\n');
     expect(lines[0]).toMatch(/^VERSION +STATUS +EMBEDDING +DOCS +CHUNKS +EVAL +CREATED \(UTC\)/);
-    expect(lines[1]).toMatch(new RegExp(`^${newer} +ready +fake/fake-hash-v1 +2 +5 +failed `));
+    expect(lines[1]).toMatch(new RegExp(`^${newer} +ready +mock/mock-hash-v1 +2 +5 +failed `));
     expect(lines[2]).toMatch(new RegExp(`^${older} .* none +2026-01-01 00:00:\\d\\d +-$`));
   });
 
@@ -279,6 +292,71 @@ describe('ragctl versions', () => {
   });
 });
 
+describe('ragctl eval', () => {
+  async function trained(env: Record<string, string> = {}) {
+    const h = await harness(env);
+    await run(['init', 'help'], h.context);
+    await run(['train', 'help'], h.context);
+    return h;
+  }
+
+  it('scores the newest version, records a passing run and unlocks activation', async () => {
+    const h = await trained();
+    expect(await run(['eval', 'help'], h.context)).toBe(0);
+    const version = h.store.versions[0];
+    expect(version?.evals).toHaveLength(1);
+    expect(version?.evals[0]).toMatchObject({
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      passed: true,
+      metrics: { harness: 'retrieval', recallAt8: 1, minRecall: 0.6, questions: 3 },
+    });
+    expect(h.out()).toMatch(/opening-hours +answer +1\.00 +yes +data\/welcome\.md/);
+    expect(h.out()).toContain('recall@8 1.00 (minimum 0.60)');
+    expect(h.out()).toContain('Eval passed.');
+    expect(await run(['activate', 'help', version?.id ?? ''], h.context)).toBe(0);
+  });
+
+  it('records a failing run and exits with 1 when recall is below the minimum', async () => {
+    const h = await trained();
+    const path = join(h.context.cwd, 'instances', 'help', 'evals.yaml');
+    await writeFile(
+      path,
+      (await readFile(path, 'utf8')).replaceAll('data/welcome.md', 'data/x.md'),
+    );
+    const versionId = h.store.versions[0]?.id ?? '';
+    expect(await run(['eval', 'help', versionId, '--min-recall', '0.5'], h.context)).toBe(1);
+    expect(h.store.versions[0]?.evals[0]).toMatchObject({ passed: false });
+    expect(h.out()).toContain('recall@8 0.00 (minimum 0.50)');
+    expect(h.err()).toContain(`Eval failed for ${versionId}`);
+  });
+
+  it('refuses bad options, missing versions, other embedding models and missing eval sets', async () => {
+    const h = await trained();
+    expect(await run(['eval', 'help', '--min-recall', '1.5'], h.context)).toBe(1);
+    expect(h.err()).toContain('--min-recall must be a number from 0 to 1');
+    expect(await run(['eval', 'help', 'nope'], h.context)).toBe(1);
+    expect(h.err()).toContain('Index version nope does not exist');
+    expect(await run(['eval'], h.context)).toBe(1);
+    expect(h.err()).toContain('Usage: ragctl eval');
+
+    const local = await trained();
+    local.context.env = { ...local.context.env, EMBEDDING_PROVIDER: 'local' };
+    expect(await run(['eval', 'help'], local.context)).toBe(1);
+    expect(local.err()).toContain('but EMBEDDING_PROVIDER selects local/Xenova/all-MiniLM-L6-v2');
+
+    const empty = await harness();
+    await run(['init', 'help'], empty.context);
+    expect(await run(['eval', 'help'], empty.context)).toBe(1);
+    expect(empty.err()).toContain('has no trained version');
+
+    const path = join(empty.context.cwd, 'instances', 'help', 'instance.yaml');
+    await writeFile(path, (await readFile(path, 'utf8')).replace('evalSet: evals.yaml\n', ''));
+    expect(await run(['eval', 'help'], empty.context)).toBe(1);
+    expect(empty.err()).toContain('has no evalSet');
+  });
+});
+
 describe('ragctl activate', () => {
   it('refuses a version without a passing eval run and leaves it unchanged', async () => {
     const h = await harness();
@@ -292,8 +370,8 @@ describe('ragctl activate', () => {
     const h = await harness();
     const id = await readyVersion(h.store);
     await h.store.recordEvalRun('help', id, {
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
       passed: true,
       metrics: {},
     });
