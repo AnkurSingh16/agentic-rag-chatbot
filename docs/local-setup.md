@@ -80,7 +80,13 @@ Live mode sends questions to Claude through the official Anthropic SDK. It is bi
 
 1. Create an API key in the Anthropic Console and set a monthly spend limit for it there. The limits in `instance.yaml` cap requests per instance; the Console limit caps the bill.
 2. Put the key in this project's `.env` as `ANTHROPIC_API_KEY=...`. Do not export it from a shell profile: `npm run dev:live` reads the key from `.env` only and refuses to start without it there.
-3. Run:
+3. Set `SESSION_SECRET` in `.env` to at least 32 random characters. The server refuses to start in live mode, with `NODE_ENV=production` or on a non-loopback `HOST` without it. Generate one with:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+4. Run:
 
    ```bash
    npm run dev:live
@@ -144,19 +150,20 @@ Roles are shared by every database in the server, so the test URLs must use the 
 
 ## Troubleshooting
 
-| Symptom                                                        | Cause and fix                                                                                                                                                                                                                       |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Missing POSTGRES_PASSWORD, ...`                               | `.env` is missing or incomplete. Copy `.env.example` and fill in the database settings.                                                                                                                                             |
-| `Could not load embedding model Xenova/all-MiniLM-L6-v2`       | The first download failed. Check the network, or use `EMBEDDING_PROVIDER=mock`.                                                                                                                                                     |
-| Migration `0008_embeddings_384.sql` fails                      | The database holds 1024-dimension indexes from before ADR 0008. Delete the old index versions and embedding cache as an administrator, or remove the volume with `docker compose down -v`, then run `npm run dev` again to retrain. |
-| Chat returns `not_found`                                       | The instance has no active version. Run `npx ragctl versions <id>` and train or activate one.                                                                                                                                       |
-| Chat returns `invalid_config` after switching embedding modes  | The active version was built with other embeddings. Retrain with the current `EMBEDDING_PROVIDER` (`npm run dev` does this for `demo`).                                                                                             |
-| Server refuses to start: `does not implement until phase 5`    | An instance uses `authenticated` or `rbac` mode, which the server does not serve yet. Set `INSTANCE_ID` to a public instance or move the other instance out of `INSTANCES_DIR`.                                                     |
-| Widget shows "Too many messages" or "daily message limit"      | A limit in `instance.yaml` was reached (`429` with `rate_limited` or `budget_exceeded`). Daily counters reset at 00:00 UTC.                                                                                                         |
-| `403` from the API in the browser                              | The page's origin is not in the instance's `allowedOrigins`.                                                                                                                                                                        |
-| `npm run dev:live` says `ANTHROPIC_API_KEY` is missing         | The key must be in this project's `.env`, not in the shell.                                                                                                                                                                         |
-| `401` with `invalid_config` in the server log during live mode | Anthropic rejected the key. Check `ANTHROPIC_API_KEY` in `.env`.                                                                                                                                                                    |
-| Sessions stop working after a restart                          | Without `SESSION_SECRET` the server signs sessions with a random secret per start. The web demo gets a new session automatically; set `SESSION_SECRET` to keep sessions across restarts.                                            |
+| Symptom                                                        | Cause and fix                                                                                                                                                                                                                           |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Missing POSTGRES_PASSWORD, ...`                               | `.env` is missing or incomplete. Copy `.env.example` and fill in the database settings.                                                                                                                                                 |
+| `Could not load embedding model Xenova/all-MiniLM-L6-v2`       | The first download failed. Check the network, or use `EMBEDDING_PROVIDER=mock`.                                                                                                                                                         |
+| Migration `0008_embeddings_384.sql` fails                      | The database holds 1024-dimension indexes from before ADR 0008. Delete the old index versions and embedding cache as an administrator, or remove the volume with `docker compose down -v`, then run `npm run dev` again to retrain.     |
+| Chat returns `not_found`                                       | The instance has no active version. Run `npx ragctl versions <id>` and train or activate one.                                                                                                                                           |
+| Chat returns `invalid_config` after switching embedding modes  | The active version was built with other embeddings. Retrain with the current `EMBEDDING_PROVIDER` (`npm run dev` does this for `demo`).                                                                                                 |
+| Server refuses to start: `does not implement until phase 5`    | An instance uses `authenticated` or `rbac` mode, which the server does not serve yet. Set `INSTANCE_ID` to a public instance or move the other instance out of `INSTANCES_DIR`.                                                         |
+| Widget shows "Too many messages" or "daily message limit"      | A limit in `instance.yaml` was reached (`429` with `rate_limited` or `budget_exceeded`). Daily counters reset at 00:00 UTC.                                                                                                             |
+| `403` from the API in the browser                              | The page's origin is not in the instance's `allowedOrigins`.                                                                                                                                                                            |
+| `npm run dev:live` says `ANTHROPIC_API_KEY` is missing         | The key must be in this project's `.env`, not in the shell.                                                                                                                                                                             |
+| `401` with `invalid_config` in the server log during live mode | Anthropic rejected the key. Check `ANTHROPIC_API_KEY` in `.env`.                                                                                                                                                                        |
+| Sessions stop working after a restart                          | Without `SESSION_SECRET` the server signs sessions with a random secret per start (allowed only in mock mode on a loopback host). The web demo gets a new session automatically; set `SESSION_SECRET` to keep sessions across restarts. |
+| `SESSION_SECRET is required when ...`                          | Live mode, `NODE_ENV=production` and non-loopback hosts need a fixed secret. Generate one with the command in [Live mode](#live-mode) and add it to `.env`.                                                                             |
 
 ## Stopping and resetting
 
