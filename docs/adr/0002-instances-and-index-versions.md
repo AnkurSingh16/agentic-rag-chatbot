@@ -19,16 +19,17 @@ An instance is one chatbot: its documents, persona, access mode and allowed orig
 
 Schema outline:
 
-| Field                                     | Notes                                                          |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| `id`                                      | `^[a-z][a-z0-9-]{1,39}$`                                       |
-| `displayName`, `persona`                  | `systemPrompt`, `answerStyle`, `outOfScope`, `forbiddenTopics` |
-| `models`                                  | chat model; optional cheaper router model                      |
-| `embedding`                               | provider and model; dimension must be 1024 (ADR 0006)          |
-| `auth`                                    | discriminated union on `mode` (ADR 0003)                       |
-| `allowedOrigins`                          | at least one; `*` rejected                                     |
-| `limits`                                  | rate limits and token budgets (ADR 0004)                       |
-| `theme`, `sources`, `chunking`, `evalSet` | sources: folder, URL list, sitemap or GitHub docs              |
+| Field                                     | Notes                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| `id`                                      | `^[a-z][a-z0-9-]{1,39}$`                                                            |
+| `displayName`, `persona`                  | `systemPrompt`, `answerStyle`, `outOfScope`, `forbiddenTopics`                      |
+| `models`                                  | chat model; optional cheaper router model                                           |
+| `embedding`                               | provider and model; dimension must be 1024 (ADR 0006)                               |
+| `auth`                                    | discriminated union on `mode` (ADR 0003)                                            |
+| `allowedOrigins`                          | at least one; `*` rejected                                                          |
+| `limits`                                  | rate limits and token budgets (ADR 0004)                                            |
+| `theme`, `sources`, `chunking`, `evalSet` | sources: folder, URL list, sitemap or GitHub docs                                   |
+| `requiredPolicies`                        | optional; RLS policy names that must exist before the instance is served (ADR 0007) |
 
 **Index versions.** `ragctl train` creates a version (`building` → `ready`). `ragctl activate` moves `instances.active_index_version_id` in one statement through a `SECURITY DEFINER` function, and marks the previous version `retired`. The last three versions are kept. Activation requires an `eval_runs` record for that version whose embedding provider and model match the version's; `--force` skips the check and is logged with the operator and reason.
 
