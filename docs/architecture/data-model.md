@@ -167,6 +167,7 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - migrations apply, re-run without changes, and refuse a modified applied file;
 - the three roles have no superuser, `BYPASSRLS`, inheritance or role-management rights, and `verifyRuntimeRole` rejects the admin and ingest credentials;
 - every `rag` table has forced RLS and is owned by `rag_migrator`; every `rag` function pins `search_path` with `pg_temp` last; only `rag_ingest` can activate and only `rag_runtime` can consume usage;
+- for every table in schema `rag`, read from `pg_tables` so a new table fails the test until it is classified, `rag_runtime` and `rag_ingest` see none of instance A's rows and cannot insert, update or delete them under instance B's context, and see zero rows with no context (`usage_global` is shared across instances by design and is checked only without context);
 - instance A cannot read instance B's documents or chunks;
 - a north user with tag `faq` cannot see a south chunk tagged `faq`; tags match on overlap; empty or unknown tags see nothing;
 - a missing or incomplete access context returns zero rows, including on a reused connection;
