@@ -2,9 +2,9 @@
 
 This page describes the PostgreSQL schema in `packages/server/db/migrations`, the roles that use it, and how a request sets the access context that row-level security (RLS) filters on. Read it before writing a query, a migration or a new policy.
 
-> Status: the schema, migration runner and transaction helper are implemented in `packages/server` (storage layer only). The HTTP server, retrieval queries and `ragctl` are planned.
+> Status: the schema, migration runner, transaction helper, ingest store, hybrid retrieval and chat storage are implemented in `packages/server`, and `apps/server` and `ragctl` use them.
 
-Design decisions: [ADR 0002](../adr/0002-instances-and-index-versions.md) (instances, index versions), [ADR 0003](../adr/0003-access-modes-and-row-level-security.md) (access modes, RLS, roles), [ADR 0004](../adr/0004-public-mode-sessions-and-cost-controls.md) (sessions, usage counters), [ADR 0006](../adr/0006-retrieval-and-embeddings.md) (embeddings, HNSW).
+Design decisions: [ADR 0002](../adr/0002-instances-and-index-versions.md) (instances, index versions), [ADR 0003](../adr/0003-access-modes-and-row-level-security.md) (access modes, RLS, roles), [ADR 0004](../adr/0004-public-mode-sessions-and-cost-controls.md) (sessions, usage counters), [ADR 0006](../adr/0006-retrieval-and-embeddings.md) (hybrid search, HNSW), [ADR 0008](../adr/0008-model-access-and-cost-controls.md) (384-dimension embeddings).
 
 ## Run it locally
 
@@ -26,7 +26,7 @@ All tables live in schema `rag`, are owned by `rag_migrator`, and have row-level
 | `eval_runs`         | `id`                                   | Evaluation results for a version, with the embedding provider and model they ran with.                                                  |
 | `activation_log`    | `id` (bigint identity)                 | One row per activation: version, `forced`, `reason`, `operator`, `activated_at`. No foreign key to the version, so it outlives pruning. |
 | `documents`         | `id`                                   | Source documents of a version, with `tenant_key` and `access_tags`.                                                                     |
-| `chunks`            | `id`                                   | Chunk text, generated `tsv`, `embedding vector(1024)`, `tenant_key` and `access_tags`.                                                  |
+| `chunks`            | `id`                                   | Chunk text, generated `tsv`, `embedding vector(384)`, `tenant_key` and `access_tags`.                                                   |
 | `embedding_cache`   | `(instance_id, model, content_sha256)` | Embeddings reused by incremental training. The key includes the instance so the cache never crosses instances.                          |
 | `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject. Expires at most 30 days after creation.                                |
 | `messages`          | `id`                                   | Conversation turns; carry `owner_key` so the owner policy needs no join.                                                                |
@@ -40,7 +40,7 @@ Integrity rules enforced by constraints:
 - Corpus rows need `cardinality(access_tags) >= 1`; `tenant_key` defaults to `_`.
 - Composite foreign keys tie every row to one instance: a version, document, chunk, message or feedback row cannot reference a row of another instance, a chunk's `tenant_key` must equal its document's, and a message or feedback row must have its conversation's `owner_key`.
 - At most one version per instance is `active` (partial unique index). `activated_at` is set exactly for `active` and `retired` versions.
-- `embedding_dimensions` must be 1024, matching the column type (ADR 0006).
+- `embedding_dimensions` must be 384, matching the column type (ADR 0008). Migration 0008 changed it from 1024; it fails while 1024-dimension rows exist, and the fix is to delete them and retrain.
 
 Indexes on `chunks`: GIN on `tsv`, GIN on `access_tags`, B-tree on `(instance_id, index_version_id, tenant_key)`, and HNSW on `embedding vector_cosine_ops` with `m = 16, ef_construction = 64`.
 
@@ -94,7 +94,7 @@ Because corpus rows can only be inserted into a `building` version and `rag_inge
 
 All three are `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither login role is a member of any role or has members. Column grants limit writes: `rag_runtime` can insert only `instance_id`, `owner_key` and `expires_at` into `conversations` (so `created_at` always comes from its default) and update only `expires_at`, which a CHECK keeps within 30 days of `created_at`; it has no direct write on the usage tables; `rag_ingest` can update only `status`, `document_count` and `chunk_count` on `index_versions`, and cannot update `instances` at all.
 
-`verifyRuntimeRole(pool)` fails closed with a `ChatbotError` unless the pool logs in as `rag_runtime` with none of the rights above, no `CREATE` on the database or on schemas `public` and `rag`, and every `rag` table under forced RLS. Calling it at server boot is planned with the HTTP server (ADR 0003).
+`verifyRuntimeRole(pool)` fails closed with a `ChatbotError` unless the pool logs in as `rag_runtime` with none of the rights above, no `CREATE` on the database or on schemas `public` and `rag`, and every `rag` table under forced RLS. `apps/server` calls it at boot and refuses to start when it fails (ADR 0003).
 
 ## Activating an index version
 
@@ -167,6 +167,17 @@ The administrator in `DATABASE_ADMIN_URL` needs to create roles, create the exte
 
 As in ADR 0003: whoever holds the `rag_runtime` credential can set the session variables to any instance, tenant or tags. RLS protects against a missing or wrong filter in trusted server code; it does not authenticate anyone. Identity is verified before the transaction starts, and nothing in a request body or URL becomes an access setting without that check.
 
+## Retrieval and chat queries
+
+`createPostgresRetrievalStore(pool)` implements the core `RetrievalStore` port. Each call runs in `withInstanceTransaction`:
+
+- `activeVersion` reads `instances.active_index_version_id` with the version's embedding provider and model. The agent graph refuses to answer when they differ from the server's embedding provider.
+- `search` runs one statement per query against an explicit version: a full-text CTE (`websearch_to_tsquery('english', ...)`, ranked by `ts_rank_cd`, top 40) and a vector CTE (cosine distance through the HNSW index, top 40, dropping candidates with a distance above 0.8), fused with Reciprocal Rank Fusion (k = 60). Chunks with a fused score below 0.0125 are dropped, and the top 8 (16 on the verification retry) are returned. Constants: `RETRIEVAL` in `packages/core/src/retrieval/types.ts`.
+
+With a `rag_runtime` pool the corpus policy applies the caller's tenant and tags; `ragctl eval` uses a `rag_ingest` pool, whose policy reads every chunk of the instance, to score a version before activation.
+
+`createPostgresChatStore(pool)` (runtime role) creates and reads conversations under the session's owner key, appends user and assistant messages, counts the owner's user messages for `maxTurnsPerSession`, and calls `rag.consume_usage` with scopes `ip:<address or /64>` and `instance`.
+
 ## What the tests prove
 
 Integration tests in `packages/server/test/integration` run against PostgreSQL with pgvector in CI:
@@ -185,4 +196,6 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - conversations, messages and feedback are visible only to their owner; another owner cannot add messages or feedback to them;
 - conversation expiry is capped at 30 days after creation, and `created_at` cannot be supplied;
 - usage counters only increase through `rag.consume_usage`; negative deltas, deltas above the overflow guard, a missing context and direct writes are rejected, and calls within the guard are recorded in full;
-- a `ready` version cannot be edited or reopened by `rag_ingest`.
+- a `ready` version cannot be edited or reopened by `rag_ingest`;
+- hybrid retrieval over the trained demo documents (mock embeddings) reaches recall@8 of at least 0.6 on the demo eval set, ranks the matching document first for a paraphrase and for a keyword, and returns nothing for unrelated text, for other tags and for another instance;
+- the chat API streams a cited answer from the active version, stores both turns under the session's owner key, adds requests and tokens to `rag.usage_counters`, and returns `404` when another session uses the conversation ID.

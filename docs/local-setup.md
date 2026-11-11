@@ -1,113 +1,134 @@
 # Local setup
 
-This page gets you from a fresh clone to a trained demo instance in a local PostgreSQL database. Everything runs offline with the `fake` embedding provider; no API keys are needed.
+This page gets you from a fresh clone to a chat widget answering questions about the demo instance, first in mock mode with no API key, then optionally in live mode against Claude.
 
-> Status: storage, training and `ragctl` are implemented. The HTTP server, retrieval, the agent graph and the evaluation harness are planned, so a trained instance cannot answer questions yet.
+> Status: the chat API (`apps/server`), the web demo (`apps/web-demo`), hybrid retrieval, the agent graph, the retrieval eval harness and `ragctl` are implemented for `public` instances. `authenticated` and `rbac` instances are refused at server start until phase 5. The mock chat model and mock embeddings are deterministic stand-ins, not models.
 
 ## Prerequisites
 
 - Node 24 and npm (`.nvmrc` pins the version).
-- Docker with Docker Compose, for PostgreSQL 17 with pgvector. Any PostgreSQL 16 or 17 server with the `vector` extension installed also works if you point the URLs below at it.
+- Docker with Docker Compose, for PostgreSQL 17 with pgvector. Any PostgreSQL 16 or 17 server with the `vector` extension also works: point the database URLs at it and set `DEV_SKIP_DOCKER=1`.
+- Internet access on the first run, to download the local embedding model (about 90 MB) from Hugging Face. Use [offline mode](#offline-mode) if you have none.
 
-## 1. Install and build
+## First run in mock mode
 
 ```bash
 npm install
-npm run build
-```
-
-`ragctl` runs from the built packages, so build again after changing code. Until the first build, `npx ragctl` prints `ragctl is not built yet`.
-
-## 2. Configure `.env`
-
-```bash
 cp .env.example .env
 ```
 
-Fill in:
+Fill in the database settings in `.env`:
 
-| Variable               | Value                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD`    | Any password for the local `rag_admin` superuser that Docker Compose creates.                 |
-| `RAG_RUNTIME_PASSWORD` | 16 to 256 characters. The migration runner creates `rag_runtime` with it.                     |
-| `RAG_INGEST_PASSWORD`  | 16 to 256 characters, different from the runtime password. Used for `rag_ingest`.             |
-| `DATABASE_ADMIN_URL`   | `postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5432/rag`                                 |
-| `DATABASE_URL`         | `postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5432/rag`                            |
-| `DATABASE_INGEST_URL`  | `postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5432/rag`. `ragctl` trains through it. |
-| `EMBEDDING_PROVIDER`   | `fake`. It is the only provider `ragctl` supports so far; `voyage` and `ollama` are planned.  |
+| Variable               | Value                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`    | Any password for the local `rag_admin` superuser that Docker Compose creates.     |
+| `RAG_RUNTIME_PASSWORD` | 16 to 256 characters. The migration runner creates `rag_runtime` with it.         |
+| `RAG_INGEST_PASSWORD`  | 16 to 256 characters, different from the runtime password. Used for `rag_ingest`. |
+| `DATABASE_ADMIN_URL`   | `postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5432/rag`                     |
+| `DATABASE_URL`         | `postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5432/rag`                |
+| `DATABASE_INGEST_URL`  | `postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5432/rag`                  |
 
-`.env` is git-ignored. `ragctl` and `npm run db:migrate` read it from the current directory, and variables already set in your shell take precedence. Run the commands below from the repository root.
+Leave `ANTHROPIC_API_KEY` empty. Every other variable has a working default; `.env.example` describes each one. `.env` is git-ignored.
 
-## 3. Start PostgreSQL
-
-```bash
-docker compose up -d
-```
-
-It listens on `127.0.0.1:5432` only and keeps its data in the `rag-postgres` volume.
-
-## 4. Create the schema
+Then:
 
 ```bash
-npm run db:migrate
+npm run dev
 ```
 
-or, equivalently:
+`npm run dev` (`scripts/dev.mjs`):
 
-```bash
-npx ragctl migrate
-```
+1. starts PostgreSQL with `docker compose up -d --wait` (skipped with `DEV_SKIP_DOCKER=1`);
+2. builds every workspace and applies the migrations;
+3. if the `demo` instance has no active index version, or its active version was built with a different embedding provider, runs `ragctl train demo`, `ragctl eval demo` and `ragctl activate demo`;
+4. starts the API on `http://127.0.0.1:4000` and the web demo on `http://127.0.0.1:5173`, with `LLM_PROVIDER=mock`.
 
-Both create the `rag_migrator`, `rag_runtime` and `rag_ingest` roles if they are missing and apply the migrations in `packages/server/db/migrations`. Running them again changes nothing. Details: [Data model](../architecture/data-model.md#migrations).
+Press Ctrl+C to stop both.
 
-## 5. Train the demo instance
+## What you'll see
 
-`instances/demo` is a public instance with eight synthetic help articles for "Lumen Notes", a note-taking app that does not exist.
-
-```bash
-npx ragctl train demo
-```
+The first run prints the training and eval output, for example:
 
 ```text
 Loaded 8 documents, 25 chunks
 Embedded 25 of 25 new chunks
-Version 569a901a-1da4-4062-846e-8505456c1d77 is ready
-Trained demo: version 569a901a-1da4-4062-846e-8505456c1d77 is ready
-  documents 8, chunks 25 (25 embedded, 0 reused from cache)
+...
+Version <id>: recall@8 1.00 (minimum 0.60), unanswerable questions with no retrieval 0/2. Eval passed.
+Activated <id> for demo. Previous: none.
 ```
 
-Version IDs differ on every run. Train again without changing a document and every chunk is reused from the embedding cache (`0 embedded, 25 reused from cache`).
+The figures above were measured with `EMBEDDING_PROVIDER=mock`; the local model gives different numbers. Later runs print `Serving demo version <id>` and skip training.
 
-## 6. List versions
+Open `http://127.0.0.1:5173`, click **Chat** and ask "How long does it take for changes to sync?". In mock mode the answer is built from the first sentence of each of the top two retrieved chunks, with a citation after each paragraph and the sources listed below it. Greetings such as "hi" get a fixed reply without retrieval. The mock model never calls a network service.
+
+`demo` is a public instance with eight synthetic help articles for "Lumen Notes", a note-taking app that does not exist.
+
+The API can also be called directly:
 
 ```bash
-npx ragctl versions demo
+TOKEN=$(curl -s -X POST http://127.0.0.1:4000/v1/instances/demo/session | node -p 'JSON.parse(require("fs").readFileSync(0)).token')
+curl -N -X POST http://127.0.0.1:4000/v1/instances/demo/chat \
+  -H 'content-type: application/json' -H "x-session-token: $TOKEN" \
+  -d '{"message":"How long does it take for changes to sync?"}'
 ```
 
-```text
-VERSION                               STATUS  EMBEDDING          DOCS  CHUNKS  EVAL  CREATED (UTC)        ACTIVATED (UTC)
-569a901a-1da4-4062-846e-8505456c1d77  ready   fake/fake-hash-v1  8     25      none  2026-11-11 08:31:34  -
+The response is a server-sent event stream (`meta`, `status`, `token`, `citation`, `final`; see [ADR 0005](adr/0005-agent-graph-streaming-and-guards.md)). Send `accept: application/json` to get one JSON object instead.
+
+## Live mode
+
+Live mode sends questions to Claude through the official Anthropic SDK. It is billed by Anthropic per request, separately from any Claude subscription ([ADR 0008](adr/0008-model-access-and-cost-controls.md)).
+
+1. Create an API key in the Anthropic Console and set a monthly spend limit for it there. The limits in `instance.yaml` cap requests per instance; the Console limit caps the bill.
+2. Put the key in this project's `.env` as `ANTHROPIC_API_KEY=...`. Do not export it from a shell profile: `npm run dev:live` reads the key from `.env` only and refuses to start without it there.
+3. Run:
+
+   ```bash
+   npm run dev:live
+   ```
+
+The model is `claude-haiku-5-5` unless `LLM_MODEL` or the instance's `models.chat` names another, for example `claude-sonnet-5-5`.
+
+Each model call writes one log line without message text, for example (values illustrative):
+
+```json
+{
+  "event": "model_call",
+  "instance": "demo",
+  "node": "answer",
+  "provider": "anthropic",
+  "model": "claude-haiku-5-5",
+  "inputTokens": 412,
+  "outputTokens": 96,
+  "cacheReadTokens": 0,
+  "cacheWriteTokens": 0
+}
 ```
 
-Add `--json` for machine-readable output.
+A turn makes up to three calls: `route` (classify the question and write search queries), `answer`, and one `answer` retry when the first answer fails verification. `cacheReadTokens` above zero means the system prompt or the retrieved context was served from the prompt cache. Prompts shorter than the model's minimum cacheable length are not cached, so short demo prompts show zero. The tokens are also added to the daily counters in `rag.usage_counters`.
 
-## 7. Activate a version
+The limits per instance (`limits` in `instance.yaml`, see [instance.yaml reference](reference/instance-config.md)) default to 512 output tokens per call, 20 turns per session, 20 requests per minute per IP, 100 requests per day per IP and 500 per day per instance. The per-minute limit is kept in each server process's memory; the daily limits are kept in PostgreSQL.
 
-A version is served only once it is activated, and activation is gated on evaluation ([ADR 0002](../adr/0002-instances-and-index-versions.md)): the version's latest eval run must have passed, using the same embedding provider and model the version was built with.
+## Ingesting documents for an instance
+
+To train an instance from a folder instead of its configured sources, evaluate the new version and activate it if the eval passes:
 
 ```bash
-npx ragctl activate demo <versionId>
+npm run ingest -- --instance demo --source path/to/data
 ```
 
-The evaluation harness that records eval runs is planned (phase 3), so for now every version reports `it has no eval run` and activation needs `--force` with a reason:
+Source URIs are relative to the folder's parent, so a folder named `data` produces the same URIs (`data/sync.md`) as the configured source and the instance's `evals.yaml` still matches. A version that fails the eval stays `ready` and is not activated. To create a new instance, see [Create an instance](guides/create-an-instance.md); restart `npm run dev` to serve it.
+
+## Offline mode
 
 ```bash
-npx ragctl activate demo <versionId> --force --reason "local demo, no eval harness yet"
+EMBEDDING_PROVIDER=mock npm run dev
 ```
 
-The database enforces the same gate, so `--force` is the only way past it. Every activation, forced or not, is recorded in `rag.activation_log` with the operator (your `$USER`, or `--operator <name>`) and the reason, and is also written to stderr as JSON events. To roll back, activate the previous version, which is now `retired`. See [Create an instance](../guides/create-an-instance.md#7-activate-and-roll-back).
+or set `EMBEDDING_PROVIDER=mock` in `.env`. Mock embeddings are deterministic hash vectors that only reflect shared words; they need no download. An index is served only with the embeddings it was built with, so `npm run dev` retrains the demo instance when you switch provider. CI runs with `LLM_PROVIDER=mock` and `EMBEDDING_PROVIDER=mock`.
 
-## 8. Run the integration tests (optional)
+The local model is cached in `MODEL_CACHE_DIR` (default `.cache/models`, git-ignored); after the first download it works offline too.
+
+## Integration tests
 
 The integration tests create roles and rows in the database they are given, so use a separate database you can throw away:
 
@@ -116,12 +137,28 @@ docker compose exec postgres createdb -U rag_admin rag_test
 export TEST_DATABASE_ADMIN_URL=postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5432/rag_test
 export TEST_DATABASE_URL=postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5432/rag_test
 export TEST_DATABASE_INGEST_URL=postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5432/rag_test
-npm run test:integration
+npm run build && npm run test:integration
 ```
 
 Roles are shared by every database in the server, so the test URLs must use the same role passwords as `.env`.
 
+## Troubleshooting
+
+| Symptom                                                        | Cause and fix                                                                                                                                                                                                                       |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Missing POSTGRES_PASSWORD, ...`                               | `.env` is missing or incomplete. Copy `.env.example` and fill in the database settings.                                                                                                                                             |
+| `Could not load embedding model Xenova/all-MiniLM-L6-v2`       | The first download failed. Check the network, or use `EMBEDDING_PROVIDER=mock`.                                                                                                                                                     |
+| Migration `0008_embeddings_384.sql` fails                      | The database holds 1024-dimension indexes from before ADR 0008. Delete the old index versions and embedding cache as an administrator, or remove the volume with `docker compose down -v`, then run `npm run dev` again to retrain. |
+| Chat returns `not_found`                                       | The instance has no active version. Run `npx ragctl versions <id>` and train or activate one.                                                                                                                                       |
+| Chat returns `invalid_config` after switching embedding modes  | The active version was built with other embeddings. Retrain with the current `EMBEDDING_PROVIDER` (`npm run dev` does this for `demo`).                                                                                             |
+| Server refuses to start: `does not implement until phase 5`    | An instance uses `authenticated` or `rbac` mode, which the server does not serve yet. Set `INSTANCE_ID` to a public instance or move the other instance out of `INSTANCES_DIR`.                                                     |
+| Widget shows "Too many messages" or "daily message limit"      | A limit in `instance.yaml` was reached (`429` with `rate_limited` or `budget_exceeded`). Daily counters reset at 00:00 UTC.                                                                                                         |
+| `403` from the API in the browser                              | The page's origin is not in the instance's `allowedOrigins`.                                                                                                                                                                        |
+| `npm run dev:live` says `ANTHROPIC_API_KEY` is missing         | The key must be in this project's `.env`, not in the shell.                                                                                                                                                                         |
+| `401` with `invalid_config` in the server log during live mode | Anthropic rejected the key. Check `ANTHROPIC_API_KEY` in `.env`.                                                                                                                                                                    |
+| Sessions stop working after a restart                          | Without `SESSION_SECRET` the server signs sessions with a random secret per start. The web demo gets a new session automatically; set `SESSION_SECRET` to keep sessions across restarts.                                            |
+
 ## Stopping and resetting
 
 - `docker compose stop` stops PostgreSQL and keeps the data.
-- `docker compose down -v` removes the container and the `rag-postgres` volume, deleting every instance, version and role. Run `npm run db:migrate` again afterwards.
+- `docker compose down -v` removes the container and the `rag-postgres` volume, deleting every instance, version and role. `npm run dev` recreates and retrains the demo.

@@ -2,7 +2,7 @@
 
 A platform for running many small, isolated chatbots that answer from their own documents. Each **instance** has its own knowledge base, persona, access mode (public, authenticated or role-based) and allowed websites. One Node.js server hosts them all; React and React Native components embed them in other apps.
 
-> **Status: early development.** The repository currently contains tooling, CI and the architecture decisions. Nothing below the "Planned" line is implemented yet. See [the roadmap](#roadmap).
+> **Status: early development.** A first end-to-end path works for `public` instances: training, retrieval evaluation, the chat API with SSE and a demo web widget, in mock mode with no API key or in live mode with an Anthropic key. Rows marked "Planned" below are not implemented. See [local setup](docs/local-setup.md) and [the roadmap](#roadmap).
 
 ## How it works
 
@@ -16,7 +16,7 @@ flowchart LR
   W & M & S -->|POST + SSE| API[Fastify server<br/>multi-instance]
   API --> G[Agent graph<br/>route, retrieve, answer, verify]
   G --> R[(PostgreSQL + pgvector<br/>RLS per instance)]
-  G --> LLM[Chat model<br/>Anthropic / Ollama]
+  G --> LLM[Chat model<br/>Anthropic API / mock]
   CLI[ragctl] -->|train, eval, activate| R
 ```
 
@@ -26,17 +26,17 @@ flowchart LR
 
 ## Repository layout
 
-| Path                    | Purpose                                                  | State       |
-| ----------------------- | -------------------------------------------------------- | ----------- |
-| `packages/core`         | Agent graph, retrieval, ingestion, provider interfaces   | In progress |
-| `packages/server`       | PostgreSQL storage (done); Fastify plugin (planned)      | In progress |
-| `packages/client`       | Headless streaming client for web and mobile             | Planned     |
-| `packages/react`        | React hooks, `<ChatWidget>` and the script-tag bundle    | Planned     |
-| `packages/react-native` | React Native hooks and chat components                   | Planned     |
-| `packages/cli`          | `ragctl`: create, train, evaluate and activate instances | Planned     |
-| `apps/server`           | Deployable API hosting many instances                    | Planned     |
-| `apps/web-demo`         | Demo web app                                             | Planned     |
-| `apps/mobile-demo`      | Expo demo app                                            | Planned     |
+| Path                    | Purpose                                                  | State                                              |
+| ----------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| `packages/core`         | Agent graph, retrieval, ingestion, provider interfaces   | In progress; agent graph minimal (ADR 0005 subset) |
+| `packages/server`       | PostgreSQL storage, retrieval and the Fastify chat API   | In progress; public mode only                      |
+| `packages/client`       | Headless streaming client for web and mobile             | Planned                                            |
+| `packages/react`        | React hooks, `<ChatWidget>` and the script-tag bundle    | Planned                                            |
+| `packages/react-native` | React Native hooks and chat components                   | Planned                                            |
+| `packages/cli`          | `ragctl`: create, train, evaluate and activate instances | Implemented                                        |
+| `apps/server`           | Deployable API hosting many instances                    | Implemented for public instances                   |
+| `apps/web-demo`         | Demo web app with a minimal chat widget                  | Implemented                                        |
+| `apps/mobile-demo`      | Expo demo app                                            | Planned                                            |
 
 ## Development
 
@@ -47,7 +47,7 @@ npm install
 npm run check   # lint, format check, typecheck, tests with coverage, build
 ```
 
-For the database: `docker compose up -d`, `npm run build`, `npm run db:migrate`, then `npm run test:integration`. See [the data model](docs/architecture/data-model.md) for the required `.env` settings.
+To run the demo locally, copy `.env.example` to `.env`, fill in the database settings and run `npm run dev` (mock mode, no API key) or `npm run dev:live` (Anthropic API key in `.env`). See [local setup](docs/local-setup.md).
 
 See [docs/development](docs/development) for conventions and the PR workflow, and [docs/adr](docs/adr) for design decisions.
 

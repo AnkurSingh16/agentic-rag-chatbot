@@ -16,7 +16,7 @@
 ## Tests
 
 - Name tests after the behaviour they prove.
-- No real network or model calls in unit and integration tests; use the `fake` providers.
+- No real network or model calls in unit and integration tests; use the `mock` chat model and `mock` embeddings, and inject fake clients for the Anthropic and transformers.js providers.
 - Security-relevant behaviour (isolation, access modes, prompt injection) always has a test.
 
 ## Commits

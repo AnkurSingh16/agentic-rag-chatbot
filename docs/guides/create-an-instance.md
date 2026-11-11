@@ -1,8 +1,8 @@
 # Create an instance
 
-This guide takes a new chatbot instance from an empty folder to a served index version, and back again with a rollback. It assumes the database is set up as in [Local setup](../getting-started/local-setup.md) and that you run every command from the repository root. Every command and flag is listed in the [ragctl reference](../reference/cli.md).
+This guide takes a new chatbot instance from an empty folder to a served index version, and back again with a rollback. It assumes the database is set up as in [Local setup](../local-setup.md) and that you run every command from the repository root. Every command and flag is listed in the [ragctl reference](../reference/cli.md).
 
-> Status: init, training, versions, activation and rollback are implemented. The evaluation harness that records eval runs is planned (phase 3), so until it exists activation needs `--force` with a reason. The HTTP server and retrieval are planned, so an active version cannot answer questions yet.
+> Status: init, training, retrieval evaluation, versions, activation and rollback are implemented, and `apps/server` serves the active version of `public` instances. `authenticated` and `rbac` instances can be trained but are not served until phase 5.
 
 ## 1. Create the instance folder
 
@@ -12,7 +12,7 @@ npx ragctl init support
 
 ```text
 Created /path/to/repo/instances/support
-  instance.yaml    public mode, fake providers
+  instance.yaml    public mode, local embeddings
   data/welcome.md  sample document
   evals.yaml       sample eval set
 
@@ -31,7 +31,7 @@ Set at least `displayName`, the `persona` and `allowedOrigins`. Every field is d
 | `authenticated` | Any signed-in user may read everything         | Untagged documents get `auth.defaultTags`            |
 | `rbac`          | Readers differ by role                         | Every document must carry tags, or training fails    |
 
-Keep `embedding.provider: fake` for now; it is the only provider `ragctl train` implements. Changing the embedding provider or model later needs a new training run.
+`embedding.provider: local` runs all-MiniLM-L6-v2 inside Node and downloads it once; set `EMBEDDING_PROVIDER=mock` to train offline with deterministic hash vectors. A version is served only with the embeddings it was built with, so changing provider or model needs a new training run.
 
 ## 3. Add documents with access tags
 
@@ -59,7 +59,7 @@ A tag must match `^[a-z0-9][a-z0-9._:-]{0,63}$`. In `rbac` mode a role reads a d
 
 ## 4. Write the eval set
 
-`evalSet` in `instance.yaml` names a YAML file of questions the instance should handle. The planned evaluation harness will run it against each version; `ragctl train` does not read it yet. The format:
+`evalSet` in `instance.yaml` names a YAML file of questions the instance should handle. `ragctl eval` runs it against a version (step 6). The format:
 
 ```yaml
 questions:
@@ -109,10 +109,18 @@ npx ragctl versions support
 
 ```text
 VERSION                               STATUS  EMBEDDING          DOCS  CHUNKS  EVAL  CREATED (UTC)        ACTIVATED (UTC)
-2f4c0d4e-8a51-4c47-9a0e-3f1b6c2d9e10  ready   fake/fake-hash-v1  3     7       none  2026-11-11 09:12:40  -
+2f4c0d4e-8a51-4c47-9a0e-3f1b6c2d9e10  ready   mock/mock-hash-v1  3     7       none  2026-11-11 09:12:40  -
 ```
 
 `EVAL` shows the latest eval run of each version: `none`, `passed` or `failed`. Add `--json` for every field.
+
+Evaluate the new version:
+
+```bash
+npx ragctl eval support <versionId>
+```
+
+It scores recall@8 over the eval set's `sources` and records an eval run that passes at a mean recall of 0.6 or more (`--min-recall` changes the threshold). See the [ragctl reference](../reference/cli.md#eval).
 
 ## 7. Activate and roll back
 
@@ -122,10 +130,10 @@ Activation is gated on evaluation ([ADR 0002](../adr/0002-instances-and-index-ve
 npx ragctl activate support <versionId>
 ```
 
-Without a passing eval run this fails with exit code 1 and a message such as `Error: Index version <versionId> cannot be activated: it has no eval run.` Because the evaluation harness is planned, every version currently reports `it has no eval run`. To activate anyway, give a reason:
+Without a passing eval run this fails with exit code 1 and a message such as `Error: Index version <versionId> cannot be activated: it has no eval run.` To activate anyway, give a reason:
 
 ```bash
-npx ragctl activate support <versionId> --force --reason "no eval harness yet; reviewed answers by hand"
+npx ragctl activate support <versionId> --force --reason "eval set not written yet; reviewed answers by hand"
 ```
 
 ```text
