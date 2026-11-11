@@ -46,7 +46,7 @@ Each chatbot instance is configured by `instances/<id>/instance.yaml`. The serve
 | `chunking.targetTokens`              | positive integer                      | `450`     | Tokens are estimated as characters ÷ 4. Must not exceed `maxTokens`.                                                                                                                                  |
 | `chunking.overlapTokens`             | integer ≥ 0                           | `60`      | Must be below `targetTokens`.                                                                                                                                                                         |
 | `chunking.minTokens`                 | integer ≥ 0                           | `50`      | Must be below `targetTokens`.                                                                                                                                                                         |
-| `chunking.maxTokens`                 | positive integer                      | `800`     | At most 8000.                                                                                                                                                                                         |
+| `chunking.maxTokens`                 | integer 100–8000                      | `800`     | Never exceeded by a chunk, including its heading prefix (capped at 200 characters).                                                                                                                   |
 | `evalSet`                            | string                                | none      | Optional path to the instance's eval questions. Activation will require an eval run (ADR 0002, planned).                                                                                              |
 | `requiredPolicies`                   | string[]                              | none      | Optional. Row-level security policy names that must exist before the instance is served (ADR 0007). Lower-case SQL identifiers.                                                                       |
 
@@ -76,6 +76,12 @@ Each entry has a `type`:
 | `github`  | `repo` (`owner/name`), `path`, `ref` (default `main`) | Markdown files under `path` at `ref`. |
 
 The loaders that read sources are planned; only the schema is implemented.
+
+### Chunking
+
+`chunkMarkdown` splits each document on ATX headings (`#` to `######`) first, then packs paragraphs up to `targetTokens` with `overlapTokens` of overlap between consecutive chunks of a section. Headings inside fenced code blocks are ignored. Setext headings (a line underlined with `===` or `---`) are not recognised and stay in the body text.
+
+Each chunk's content starts with its heading path (document title, then enclosing headings, joined with `>`). That prefix is capped at 200 characters: short segments are kept whole and longer ones are shortened with `…`. The full heading path is still returned separately for display. Because of the cap and the 100-token minimum for `maxTokens`, no chunk exceeds `maxTokens`.
 
 ## Auth mode override
 

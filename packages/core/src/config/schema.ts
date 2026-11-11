@@ -151,7 +151,9 @@ export const chunkingSchema = z
     targetTokens: z.int().positive().default(450),
     overlapTokens: z.int().nonnegative().default(60),
     minTokens: z.int().nonnegative().default(50),
-    maxTokens: z.int().positive().max(8000).default(800),
+    // The chunker prepends up to 200 characters of heading path; 100 tokens
+    // (400 characters) leaves room for text under it.
+    maxTokens: z.int().min(100).max(8000).default(800),
   })
   .superRefine((value, ctx) => {
     if (value.targetTokens > value.maxTokens) {

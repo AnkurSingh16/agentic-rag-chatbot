@@ -40,6 +40,9 @@ interface Limits {
 
 const CHARS_PER_TOKEN = 4;
 const BLOCK_SEPARATOR = '\n\n';
+const HEADING_SEPARATOR = ' > ';
+const MAX_PREFIX_CHARS = 200;
+const ELLIPSIS = '…';
 const HEADING = /^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 
@@ -56,6 +59,35 @@ export function contentSha256(content: string): string {
 /** A stable hash of the chunker version and settings, stored on each index version. */
 export function chunkerHash(settings: ChunkingConfig = DEFAULT_CHUNKING): string {
   return sha256Hex(canonicalJson({ version: CHUNKER_VERSION, settings }));
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function truncate(text: string, length: number): string {
+  if (text.length <= length) return text;
+  let end = length - ELLIPSIS.length;
+  if (end > 0 && isHighSurrogate(text.charCodeAt(end - 1))) end -= 1;
+  return text.slice(0, end).trimEnd() + ELLIPSIS;
+}
+
+// Joins the heading path within MAX_PREFIX_CHARS so that a long title or deep
+// headings cannot crowd out the chunk text. Short segments stay whole and the
+// remaining space is shared equally by the long ones.
+function headingPrefix(path: readonly string[]): string {
+  const joined = path.join(HEADING_SEPARATOR);
+  if (joined.length <= MAX_PREFIX_CHARS) return joined;
+  let available = MAX_PREFIX_CHARS - HEADING_SEPARATOR.length * (path.length - 1);
+  let longSegments = path.length;
+  let share = Math.floor(available / longSegments);
+  for (const length of path.map((segment) => segment.length).sort((a, b) => a - b)) {
+    if (length > share) break;
+    available -= length;
+    longSegments -= 1;
+    share = Math.floor(available / longSegments);
+  }
+  return path.map((segment) => truncate(segment, Math.max(share, 1))).join(HEADING_SEPARATOR);
 }
 
 function closesFence(line: string, fence: string): boolean {
@@ -147,9 +179,9 @@ function cutPoint(text: string, limit: number): number {
   if (sentenceEnd > floor) return sentenceEnd;
   const wordEnd = lastMatchEnd(window, /\S(?=\s)/g);
   if (wordEnd > floor) return wordEnd;
-  const code = text.charCodeAt(limit - 1);
-  // Never separate the two halves of a surrogate pair.
-  return code >= 0xd800 && code <= 0xdbff ? limit - 1 : limit;
+  // Never separate the two halves of a surrogate pair, unless the limit is a
+  // single character and the cut must still make progress.
+  return limit > 1 && isHighSurrogate(text.charCodeAt(limit - 1)) ? limit - 1 : limit;
 }
 
 function hardSplit(text: string, limit: number): string[] {
@@ -223,15 +255,17 @@ function packSection(blocks: readonly string[], limits: Limits): string[] {
 /**
  * Splits a document into chunks for embedding (ADR 0006).
  *
- * The text is split on markdown headings first. Paragraphs within a section are
- * packed up to `targetTokens`, consecutive chunks of one section share about
- * `overlapTokens` of text, and a paragraph longer than `maxTokens` is split at
- * sentence, then word, then character boundaries. A short trailing piece is
- * merged into the previous chunk of its section, but a whole section shorter
- * than `minTokens` stays a chunk of its own so it keeps its heading. Sizes apply
- * to the content including the heading path, unless the heading path alone
- * takes more than half the budget. The output depends only on the input and
- * settings.
+ * The text is split on ATX markdown headings (`#` to `######`) first; setext
+ * headings (a line underlined with `===` or `---`) are treated as body text.
+ * Paragraphs within a section are packed up to `targetTokens`, consecutive
+ * chunks of one section share about `overlapTokens` of text, and a paragraph
+ * longer than `maxTokens` is split at sentence, then word, then character
+ * boundaries. A short trailing piece is merged into the previous chunk of its
+ * section, but a whole section shorter than `minTokens` stays a chunk of its
+ * own so it keeps its heading. The heading path prepended to the content is
+ * capped at 200 characters, so for settings the schema accepts no chunk
+ * exceeds `maxTokens`. `headingPath` itself is not shortened. The output
+ * depends only on the input and settings.
  */
 export function chunkMarkdown(
   input: ChunkInput,
@@ -240,13 +274,15 @@ export function chunkMarkdown(
   const chunks: Chunk[] = [];
   for (const section of parseSections(input.text, input.title)) {
     const prefix =
-      section.headingPath.length > 0 ? section.headingPath.join(' > ') + BLOCK_SEPARATOR : '';
+      section.headingPath.length > 0 ? headingPrefix(section.headingPath) + BLOCK_SEPARATOR : '';
     const maxChars = settings.maxTokens * CHARS_PER_TOKEN;
     const targetChars = settings.targetTokens * CHARS_PER_TOKEN;
-    const max = Math.max(maxChars - prefix.length, Math.floor(maxChars / 2));
+    // The floors only matter for settings below the schema minimum, where the
+    // prefix alone could fill the budget; they keep every limit positive.
+    const max = Math.max(maxChars - prefix.length, Math.floor(maxChars / 4));
     const limits: Limits = {
       max,
-      target: Math.min(Math.max(targetChars - prefix.length, Math.floor(targetChars / 2)), max),
+      target: Math.min(Math.max(targetChars - prefix.length, Math.floor(targetChars / 4)), max),
       min: settings.minTokens * CHARS_PER_TOKEN,
       overlap: settings.overlapTokens * CHARS_PER_TOKEN,
     };

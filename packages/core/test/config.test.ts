@@ -316,6 +316,7 @@ describe('loadInstanceConfig', () => {
     [{ minTokens: 450 }, 'chunking.minTokens'],
     [{ overlapTokens: 450 }, 'chunking.overlapTokens'],
     [{ maxTokens: 9000 }, 'chunking.maxTokens'],
+    [{ maxTokens: 99, targetTokens: 90 }, 'chunking.maxTokens'],
     [{ targetTokens: 0 }, 'chunking.targetTokens'],
   ])('rejects inconsistent chunking %j', (chunking, field) => {
     expectRejected(withField(['chunking'], chunking), field);

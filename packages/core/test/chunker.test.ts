@@ -7,9 +7,12 @@ import {
   contentSha256,
   estimateTokens,
 } from '../src/chunking/chunker.js';
+import { chunkingSchema } from '../src/config/schema.js';
 import type { ChunkingConfig } from '../src/config/schema.js';
 
-// 80-character target, 160 maximum, 20 minimum and 20 overlap, so tests stay readable.
+// 80-character target, 160 maximum, 20 minimum and 20 overlap, so tests stay
+// readable. These are below the schema minimum for maxTokens, which only
+// matters for headings; heading tests use the defaults.
 const small: ChunkingConfig = { targetTokens: 20, overlapTokens: 5, minTokens: 5, maxTokens: 40 };
 
 function words(count: number, seed: string): string {
@@ -93,6 +96,12 @@ describe('chunkMarkdown headings', () => {
   it('keeps an unclosed code fence to the end of the document', () => {
     const [only] = chunk('~~~\n# inside\n\nstill inside', DEFAULT_CHUNKING);
     expect(only?.content).toBe('~~~\n# inside\n\nstill inside');
+  });
+
+  it('treats setext headings as body text', () => {
+    const [only] = chunk('Title\n=====\nIntro.\n\nSection\n-------\nMore.', DEFAULT_CHUNKING);
+    expect(only?.headingPath).toEqual([]);
+    expect(only?.content).toBe('Title\n=====\nIntro.\n\nSection\n-------\nMore.');
   });
 
   it('does not treat #hashtags or seven hashes as headings', () => {
@@ -246,12 +255,55 @@ describe('chunkMarkdown sizing', () => {
     expect(chunks.some((c) => loneSurrogate.test(c.content))).toBe(false);
   });
 
-  it('relaxes the maximum only when the heading path takes more than half of it', () => {
-    const longHeading = 'H'.repeat(120);
-    const chunks = chunk(`## ${longHeading}\n\n${paragraphs}`);
-    for (const c of chunks) {
-      expect(bodyOf(c.content).length).toBeLessThanOrEqual((small.maxTokens * 4) / 2);
-    }
+  it('caps the heading prefix at 200 characters but keeps headingPath whole', () => {
+    const longHeading = 'H'.repeat(300);
+    const [first] = chunk(`## ${longHeading}\n\nBody.`, DEFAULT_CHUNKING, 'Title');
+    const prefix = first?.content.split('\n\n')[0] ?? '';
+    expect(prefix.length).toBeLessThanOrEqual(200);
+    expect(prefix.startsWith('Title > HHH')).toBe(true);
+    expect(prefix.endsWith('…')).toBe(true);
+    expect(first?.headingPath).toEqual(['Title', longHeading]);
+  });
+
+  it('keeps short heading segments whole and shares the rest between long ones', () => {
+    const text = `# ${'A'.repeat(150)}\n## Short\n### ${'B'.repeat(150)}\nBody.`;
+    const [first] = chunk(text, DEFAULT_CHUNKING, 'Guide');
+    const segments = (first?.content.split('\n\n')[0] ?? '').split(' > ');
+    expect(segments[0]).toBe('Guide');
+    expect(segments[2]).toBe('Short');
+    expect(segments[1]?.length).toBe(segments[3]?.length);
+    expect(segments[1]?.endsWith('…')).toBe(true);
+    expect(segments.join(' > ').length).toBeLessThanOrEqual(200);
+  });
+
+  it('does not split a surrogate pair when truncating a heading', () => {
+    const [first] = chunk(`## ${'😀'.repeat(150)}\n\nBody.`, DEFAULT_CHUNKING, 'T');
+    const prefix = first?.content.split('\n\n')[0] ?? '';
+    expect(prefix.length).toBeLessThanOrEqual(200);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(prefix)).toBe(false);
+  });
+
+  it('never exceeds maxTokens with the smallest settings the schema accepts', () => {
+    const settings = chunkingSchema.parse({
+      targetTokens: 64,
+      overlapTokens: 10,
+      minTokens: 10,
+      maxTokens: 100,
+    });
+    const headings = [1, 2, 3, 4, 5, 6]
+      .map((level) => `${'#'.repeat(level)} ${'Heading '.repeat(15)}${level}`)
+      .join('\n');
+    const body = Array.from({ length: 8 }, (_, i) => words(40, `s${i}w`)).join('\n\n');
+    const chunks = chunk(`${headings}\n\n${body}\n\n${'z'.repeat(900)}`, settings, 'T'.repeat(80));
+    expect(chunks.length).toBeGreaterThan(5);
+    for (const c of chunks) expect(c.tokenEstimate).toBeLessThanOrEqual(100);
+  });
+
+  it('still terminates and keeps every character for settings below the schema minimum', () => {
+    const tiny: ChunkingConfig = { targetTokens: 1, overlapTokens: 0, minTokens: 0, maxTokens: 1 };
+    const text = 'ab😀cd';
+    const chunks = chunk(`## ${'H'.repeat(250)}\n\n${text}`, tiny);
+    expect(chunks.map((c) => bodyOf(c.content)).join('')).toBe(text);
   });
 
   it('applies the default settings from ADR 0006', () => {
