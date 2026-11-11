@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MinuteRateLimiter, ipKey } from '../../src/http/limits.js';
+import { ipKey } from '../../src/http/limits.js';
 import { SESSION_TTL_SECONDS, createSessionSigner } from '../../src/http/session.js';
 
 describe('createSessionSigner', () => {
@@ -48,26 +48,5 @@ describe('ipKey', () => {
     ['unknown', 'unknown'],
   ])('keys %s as %s', (address, key) => {
     expect(ipKey(address)).toBe(key);
-  });
-});
-
-describe('MinuteRateLimiter', () => {
-  it('allows the limit per key per minute', () => {
-    let now = 0;
-    const limiter = new MinuteRateLimiter(() => now);
-    expect([1, 2, 3].map(() => limiter.take('a', 2))).toEqual([true, true, false]);
-    expect(limiter.take('b', 2)).toBe(true);
-    now = 60_000;
-    expect(limiter.take('a', 2)).toBe(true);
-  });
-
-  it('keeps tracking new keys when the table is full', () => {
-    let now = 0;
-    const limiter = new MinuteRateLimiter(() => now);
-    for (let i = 0; i < 50_000; i++) limiter.take(`k${i}`, 1);
-    expect(limiter.take('new', 1)).toBe(true);
-    expect(limiter.take('new', 1)).toBe(false);
-    now = 61_000;
-    expect(limiter.take('another', 1)).toBe(true);
   });
 });

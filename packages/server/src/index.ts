@@ -19,8 +19,14 @@ export type {
   OwnerAccess,
   UsageTotals,
 } from './store/chat-store.js';
-export { BODY_LIMIT_BYTES, LOG_REDACT_PATHS, createChatServer, createLogger } from './http/app.js';
+export {
+  BODY_LIMIT_BYTES,
+  DEFAULT_REQUESTS_PER_MINUTE,
+  LOG_REDACT_PATHS,
+  createChatServer,
+  createLogger,
+} from './http/app.js';
 export type { ChatServerOptions } from './http/app.js';
-export { MinuteRateLimiter, ipKey } from './http/limits.js';
+export { ipKey } from './http/limits.js';
 export { SESSION_TTL_SECONDS, createSessionSigner } from './http/session.js';
 export type { IssuedSession, SessionSigner, VerifiedSession } from './http/session.js';

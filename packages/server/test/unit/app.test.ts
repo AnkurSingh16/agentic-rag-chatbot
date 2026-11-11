@@ -6,7 +6,7 @@ import {
   instanceConfigSchema,
 } from '@agentic-rag/core';
 import type { InstanceConfig, RetrievalStore, RetrievedChunk } from '@agentic-rag/core';
-import { createChatServer, createLogger } from '../../src/http/app.js';
+import { DEFAULT_REQUESTS_PER_MINUTE, createChatServer, createLogger } from '../../src/http/app.js';
 import type { ChatServerOptions } from '../../src/http/app.js';
 import type { ChatStore, OwnerAccess } from '../../src/store/chat-store.js';
 
@@ -300,6 +300,24 @@ describe('chat server', () => {
     const turnsResponse = await chatWith(turns, await sessionToken(turns.app));
     expect(turnsResponse.statusCode).toBe(429);
     expect(turnsResponse.json()).toMatchObject({ error: { code: 'rate_limited' } });
+  });
+
+  it('rate-limits every route per address, without counting preflights', async () => {
+    const { app } = server({}, instance({ requestsPerMinutePerIp: 1 }));
+    for (let i = 0; i < 3; i++) {
+      const preflight = await app.inject({ method: 'OPTIONS', url: '/v1/instances/help/session' });
+      expect(preflight.statusCode).toBe(204);
+    }
+    expect((await app.inject('/v1/instances/help/config')).statusCode).toBe(200);
+    const limited = await app.inject('/v1/instances/help/config');
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: { code: 'rate_limited', retryable: true } });
+    expect(limited.headers['retry-after']).toBeDefined();
+
+    for (let i = 0; i < DEFAULT_REQUESTS_PER_MINUTE; i++) {
+      expect((await app.inject('/health')).statusCode).toBe(200);
+    }
+    expect((await app.inject('/health')).statusCode).toBe(429);
   });
 
   it('reports failures after the stream started as an error event', async () => {
