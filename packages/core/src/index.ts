@@ -50,3 +50,25 @@ export type {
 
 export { hasPermission, resolveAccessTags, resolvePermissions } from './access/access.js';
 export type { AccessContext } from './access/access.js';
+
+export type {
+  CachedEmbedding,
+  ChunkRecord,
+  DocumentRecord,
+  EvalRunSummary,
+  IndexVersionStatus,
+  IndexVersionSummary,
+  IngestStore,
+  NewEvalRun,
+  NewIndexVersion,
+} from './store/types.js';
+
+export { DEFAULT_MAX_DOCUMENT_BYTES, loadDocuments } from './training/sources.js';
+export type { FetchLike, LoadedDocument, SourceAccess } from './training/sources.js';
+export { EMBEDDING_BATCH_SIZE, RETAINED_VERSIONS, train } from './training/train.js';
+export type { TrainOptions, TrainResult } from './training/train.js';
+export { activateVersion, evalGateFailure } from './training/activate.js';
+export type { ActivateOptions, ActivateResult } from './training/activate.js';
+
+export { evalSetSchema, parseEvalSet } from './eval/eval-set.js';
+export type { EvalQuestion, EvalSet } from './eval/eval-set.js';
