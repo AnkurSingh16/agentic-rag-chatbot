@@ -263,7 +263,7 @@ describe('corpus write permissions', () => {
         const building = await client.query<{ id: string }>(
           `INSERT INTO rag.index_versions
              (instance_id, embedding_provider, embedding_model, embedding_dimensions, chunker_hash, config_hash)
-           VALUES ($1, 'fake', 'fake-1024', 1024, $2, $2) RETURNING id`,
+           VALUES ($1, 'mock', 'mock-384', 384, $2, $2) RETURNING id`,
           [instanceA, 'e'.repeat(64)],
         );
         return client.query("UPDATE rag.index_versions SET status = 'active' WHERE id = $1", [

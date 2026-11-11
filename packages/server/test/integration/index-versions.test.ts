@@ -93,7 +93,7 @@ describe('index version activation', () => {
       const result = await client.query<{ id: string }>(
         `INSERT INTO rag.index_versions
            (instance_id, embedding_provider, embedding_model, embedding_dimensions, chunker_hash, config_hash)
-         VALUES ($1, 'fake', 'fake-1024', 1024, $2, $2) RETURNING id`,
+         VALUES ($1, 'mock', 'mock-384', 384, $2, $2) RETURNING id`,
         [instanceId, 'd'.repeat(64)],
       );
       return result.rows[0]?.id ?? '';
@@ -205,7 +205,7 @@ describe('eval gate on activation', () => {
     expect(await gateFailure(versionId)).toContain('failed');
 
     await recordEval(ingestPool, gateInstance, versionId, true, 'voyage-3.5');
-    expect(await gateFailure(versionId)).toContain('used fake/voyage-3.5');
+    expect(await gateFailure(versionId)).toContain('used mock/voyage-3.5');
 
     expect(await activeVersion()).toBeNull();
     expect(await log()).toEqual([]);

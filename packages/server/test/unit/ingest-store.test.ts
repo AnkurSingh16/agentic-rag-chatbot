@@ -27,9 +27,9 @@ function databaseError(code: string, message: string): Error {
 const versionRow = {
   id: VERSION,
   status: 'ready',
-  embedding_provider: 'fake',
-  embedding_model: 'fake-hash-v1',
-  embedding_dimensions: 1024,
+  embedding_provider: 'mock',
+  embedding_model: 'mock-hash-v1',
+  embedding_dimensions: 384,
   chunker_hash: HASH,
   config_hash: HASH,
   document_count: 2,
@@ -57,30 +57,30 @@ describe('createPostgresIngestStore', () => {
       text.includes('RETURNING id') ? [{ id: VERSION }] : [],
     );
     const id = await store.createIndexVersion('help', {
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
-      embeddingDimensions: 1024,
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      embeddingDimensions: 384,
       chunkerHash: HASH,
       configHash: HASH,
     });
     expect(id).toBe(VERSION);
-    expect(work()[0]?.values).toEqual(['help', 'fake', 'fake-hash-v1', 1024, HASH, HASH]);
+    expect(work()[0]?.values).toEqual(['help', 'mock', 'mock-hash-v1', 384, HASH, HASH]);
   });
 
   it('fails when an insert returns no row', async () => {
     const { store } = storeWith();
     await expect(
       store.createIndexVersion('help', {
-        embeddingProvider: 'fake',
+        embeddingProvider: 'mock',
         embeddingModel: 'm',
-        embeddingDimensions: 1024,
+        embeddingDimensions: 384,
         chunkerHash: HASH,
         configHash: HASH,
       }),
     ).rejects.toMatchObject({ code: 'internal' });
     await expect(
       store.recordEvalRun('help', VERSION, {
-        embeddingProvider: 'fake',
+        embeddingProvider: 'mock',
         embeddingModel: 'm',
         passed: true,
         metrics: {},
@@ -146,9 +146,9 @@ describe('createPostgresIngestStore', () => {
     const { store, work } = storeWith(() => [
       { content_sha256: HASH, embedding: '[1,0.5,-2e-05]' },
     ]);
-    const found = await store.findCachedEmbeddings('help', 'fake-hash-v1', [HASH]);
+    const found = await store.findCachedEmbeddings('help', 'mock-hash-v1', [HASH]);
     expect(found).toEqual(new Map([[HASH, [1, 0.5, -0.00002]]]));
-    expect(work()[0]?.values).toEqual(['help', 'fake-hash-v1', [HASH]]);
+    expect(work()[0]?.values).toEqual(['help', 'mock-hash-v1', [HASH]]);
   });
 
   it('skips the query for an empty lookup', async () => {
@@ -199,13 +199,13 @@ describe('createPostgresIngestStore', () => {
   it('records eval runs with metrics as JSON', async () => {
     const { store, work } = storeWith(() => [{ id: 'eval-1' }]);
     const id = await store.recordEvalRun('help', VERSION, {
-      embeddingProvider: 'fake',
+      embeddingProvider: 'mock',
       embeddingModel: 'm',
       passed: false,
       metrics: { recallAt8: 0.5 },
     });
     expect(id).toBe('eval-1');
-    expect(work()[0]?.values).toEqual(['help', VERSION, 'fake', 'm', false, '{"recallAt8":0.5}']);
+    expect(work()[0]?.values).toEqual(['help', VERSION, 'mock', 'm', false, '{"recallAt8":0.5}']);
   });
 
   it('activates through the database function and returns the previous version', async () => {
@@ -260,8 +260,8 @@ describe('createPostgresIngestStore', () => {
       {
         ...versionRow,
         eval_id: 'eval-1',
-        eval_provider: 'fake',
-        eval_model: 'fake-hash-v1',
+        eval_provider: 'mock',
+        eval_model: 'mock-hash-v1',
         eval_passed: true,
         eval_created_at: evalDate,
       },
@@ -272,9 +272,9 @@ describe('createPostgresIngestStore', () => {
     expect(versions[0]).toEqual({
       id: VERSION,
       status: 'ready',
-      embeddingProvider: 'fake',
-      embeddingModel: 'fake-hash-v1',
-      embeddingDimensions: 1024,
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      embeddingDimensions: 384,
       chunkerHash: HASH,
       configHash: HASH,
       documentCount: 2,
@@ -283,8 +283,8 @@ describe('createPostgresIngestStore', () => {
       activatedAt: null,
       latestEval: {
         id: 'eval-1',
-        embeddingProvider: 'fake',
-        embeddingModel: 'fake-hash-v1',
+        embeddingProvider: 'mock',
+        embeddingModel: 'mock-hash-v1',
         passed: true,
         createdAt: evalDate,
       },
