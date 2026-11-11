@@ -20,10 +20,27 @@ function decodeEntities(text: string): string {
   });
 }
 
+// A single pass can leave markup behind when tags are nested inside each other
+// (`<scr<script>ipt>`), so replace until nothing changes.
+function replaceUntilStable(text: string, pattern: RegExp, replacement: string): string {
+  let previous: string;
+  let current = text;
+  do {
+    previous = current;
+    current = current.replace(pattern, replacement);
+  } while (current !== previous);
+  return current;
+}
+
+// Output is plain text, so any angle bracket left after tag removal is a fragment
+// of broken markup rather than content. Literal brackets survive as entities and
+// are decoded afterwards.
+function stripMarkup(text: string): string {
+  return replaceUntilStable(text, /<[^>]*>/g, '').replace(/[<>]/g, '');
+}
+
 function collapse(text: string): string {
-  return decodeEntities(text.replace(/<[^>]*>/g, ''))
-    .replace(/\s+/g, ' ')
-    .trim();
+  return decodeEntities(stripMarkup(text)).replace(/\s+/g, ' ').trim();
 }
 
 export interface HtmlText {
@@ -40,9 +57,13 @@ export function htmlToText(html: string): HtmlText {
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
   const title = titleMatch ? collapse(titleMatch[1] ?? '') : undefined;
 
-  const text = html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|noscript|template|head|svg)\b[\s\S]*?<\/\1\s*>/gi, '')
+  const withoutHidden = replaceUntilStable(
+    replaceUntilStable(html, /<!--[\s\S]*?-->/g, ''),
+    /<(script|style|noscript|template|head|svg)\b[\s\S]*?<\/\1\s*>/gi,
+    '',
+  );
+
+  const blocks = withoutHidden
     .replace(
       /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi,
       (_match, level: string, inner: string) =>
@@ -53,8 +74,9 @@ export function htmlToText(html: string): HtmlText {
     .replace(
       /<\/?(p|div|section|article|main|header|footer|nav|aside|ul|ol|table|tr|blockquote|pre)\b[^>]*>/gi,
       '\n\n',
-    )
-    .replace(/<[^>]*>/g, '')
+    );
+
+  const text = stripMarkup(blocks)
     .split('\n')
     .map((line) =>
       decodeEntities(line)

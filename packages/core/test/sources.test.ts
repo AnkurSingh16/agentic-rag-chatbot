@@ -301,3 +301,28 @@ describe('htmlToText', () => {
     expect(htmlToText('<title> </title><p>x</p>').title).toBeUndefined();
   });
 });
+
+describe('htmlToText with nested or broken markup', () => {
+  it('leaves no tags behind when tags are nested inside each other', () => {
+    const { text } = htmlToText('<p>Hi</p><scr<script>ipt>alert(1)</script><p>there</p>');
+    expect(text).not.toMatch(/[<>]/);
+    expect(text).toContain('Hi');
+    expect(text).toContain('there');
+  });
+
+  it('removes nested comment openers and hidden blocks', () => {
+    const { text } = htmlToText(
+      '<!<!--- x -->-- y --><p>Body</p><scr<script></script>ipt>z</script>',
+    );
+    expect(text).not.toMatch(/[<>]/);
+    expect(text).toContain('Body');
+  });
+
+  it('keeps literal brackets written as entities', () => {
+    expect(htmlToText('<p>a &lt; b &gt; c</p>').text).toBe('a < b > c');
+  });
+
+  it('strips stray brackets from titles', () => {
+    expect(htmlToText('<title>Help <b>page</title>').title).toBe('Help page');
+  });
+});
