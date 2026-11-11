@@ -13,7 +13,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, nested: unknown) =>
     isPlainObject(nested)
-      ? Object.fromEntries(Object.entries(nested).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      ? Object.fromEntries(Object.entries(nested).sort(([a], [b]) => (a < b ? -1 : 1)))
       : nested,
   );
 }
