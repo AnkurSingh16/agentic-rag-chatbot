@@ -1,0 +1,26 @@
+{
+  "name": "@agentic-rag/cli",
+  "version": "0.0.0",
+  "description": "ragctl: create, train and activate instances of the agentic RAG chatbot platform.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ragctl": "bin/ragctl.mjs"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agentic-rag/core": "*",
+    "@agentic-rag/server": "*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

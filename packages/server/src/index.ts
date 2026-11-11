@@ -10,3 +10,4 @@ export type { MigrateCliConfig } from './store/config.js';
 export type { PooledClient, Queryable } from './store/queryable.js';
 export { verifyRuntimeRole, withInstanceTransaction } from './store/transaction.js';
 export type { InstanceAccess } from './store/transaction.js';
+export { createPostgresIngestStore } from './store/ingest-store.js';

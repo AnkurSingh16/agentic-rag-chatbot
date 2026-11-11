@@ -90,6 +90,7 @@ describe('database roles', () => {
        ORDER BY c.relname`,
     );
     expect(tables.rows.map((t) => t.relname)).toEqual([
+      'activation_log',
       'chunks',
       'conversations',
       'documents',
@@ -127,8 +128,8 @@ describe('database roles', () => {
     ]);
 
     const execute = await admin.query<Record<string, boolean>>(
-      `SELECT has_function_privilege('rag_ingest', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS ingest_activate,
-              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid)', 'EXECUTE') AS runtime_activate,
+      `SELECT has_function_privilege('rag_ingest', 'rag.activate_index_version(text, uuid, boolean, text, text)', 'EXECUTE') AS ingest_activate,
+              has_function_privilege('rag_runtime', 'rag.activate_index_version(text, uuid, boolean, text, text)', 'EXECUTE') AS runtime_activate,
               has_function_privilege('rag_runtime', 'rag.consume_usage(text[], bigint, bigint)', 'EXECUTE') AS runtime_consume,
               has_function_privilege('rag_ingest', 'rag.consume_usage(text[], bigint, bigint)', 'EXECUTE') AS ingest_consume`,
     );

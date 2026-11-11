@@ -30,6 +30,8 @@ A `public` instance, such as the one on the personal website, accepts anonymous 
 
 Counters live in PostgreSQL (`usage_counters` per instance; a separate `usage_global` table with its own policy for `rag_runtime`), updated atomically with `UPDATE … RETURNING`, so limits hold across replicas. Exceeding a limit returns the `rate_limited` or `budget_exhausted` error code. The per-IP budget sits ahead of the instance budget so that one client exhausts its own allowance before it can affect anyone else.
 
+The counter function records every call in full, so real spend is never dropped. Its only bound is an overflow guard: it rejects a single call adding more than 10,000,000 tokens or 1,000 requests, so one bad call cannot push the shared global counter to the `bigint` maximum and make every later call fail for the rest of the day.
+
 ## Consequences
 
 - Required tests: session rotation does not reset the per-IP budget; addresses in one IPv6 /64 share a budget; session issuance is rate-limited; one session cannot read another's conversation; spoofed `X-Forwarded-For` is ignored without a trusted proxy; each limit trips at its configured value.

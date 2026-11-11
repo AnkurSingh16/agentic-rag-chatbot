@@ -434,6 +434,28 @@ describe('usage counters', () => {
     expect(Number(second.global?.[0]) - Number(firstGlobal[0])).toBeGreaterThanOrEqual(5);
   });
 
+  it('records large calls in full and rejects only calls above the overflow guard', async () => {
+    const scope = `guard:${instanceA}`;
+    expect((await consume([scope], 250_000, 3))[scope]).toEqual(['250000', '3']);
+    expect((await consume([scope], 10_000_000, 1000))[scope]).toEqual(['10250000', '1003']);
+
+    for (const [tokens, requests] of [
+      [10_000_001, 0],
+      [0, 1001],
+      ['9223372036854775807', 0],
+      [0, '9223372036854775807'],
+    ] as const) {
+      const attempt = withInstanceTransaction(runtime, access, (client) =>
+        client.query('SELECT * FROM rag.consume_usage($1, $2, $3)', [[scope], tokens, requests]),
+      );
+      expect(sqlState(await failureOf(attempt)), `${tokens} tokens, ${requests} requests`).toBe(
+        '22023',
+      );
+    }
+
+    expect((await consume([scope], 0, 0))[scope]).toEqual(['10250000', '1003']);
+  });
+
   it('rejects negative deltas, a missing instance context and direct writes', async () => {
     expect(sqlState(await failureOf(consume(['session:x'], -1, 0)))).toBe('22023');
     expect(sqlState(await failureOf(consume(['session:x'], 0, -1)))).toBe('22023');

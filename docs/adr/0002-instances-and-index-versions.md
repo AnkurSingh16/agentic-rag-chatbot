@@ -31,7 +31,7 @@ Schema outline:
 | `theme`, `sources`, `chunking`, `evalSet` | sources: folder, URL list, sitemap or GitHub docs                                   |
 | `requiredPolicies`                        | optional; RLS policy names that must exist before the instance is served (ADR 0007) |
 
-**Index versions.** `ragctl train` creates a version (`building` → `ready`). `ragctl activate` moves `instances.active_index_version_id` in one statement through a `SECURITY DEFINER` function, and marks the previous version `retired`. The last three versions are kept. Activation requires an `eval_runs` record for that version whose embedding provider and model match the version's; `--force` skips the check and is logged with the operator and reason.
+**Index versions.** `ragctl train` creates a version (`building` → `ready`). `ragctl activate` moves `instances.active_index_version_id` in one statement through a `SECURITY DEFINER` function, and marks the previous version `retired`. The last three versions are kept. Activation requires the latest `eval_runs` record for that version to have passed, with an embedding provider and model that match the version's; `--force` skips the check but requires a reason. The activation function enforces the gate in the database and records every activation, forced or not, in `activation_log` with the operator and reason. The gate prevents accidental activation; an operator holding the ingest credential can still record an eval run, the same trust boundary as ADR 0003.
 
 **Incremental training.** An `embedding_cache` keyed by `(instance_id, model, content_sha256)` lets unchanged chunks be copied into a new version without re-embedding. The key includes the instance so the cache cannot carry information between instances.
 

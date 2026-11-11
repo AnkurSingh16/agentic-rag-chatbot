@@ -10,6 +10,8 @@
     "node": ">=24 <27"
   },
   "workspaces": [
+    "packages/core",
+    "packages/server",
     "packages/*",
     "apps/*"
   ],

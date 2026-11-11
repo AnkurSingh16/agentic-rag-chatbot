@@ -10,6 +10,7 @@ import {
   failureOf,
   ingest,
   ingestUrl,
+  recordEval,
   rolePasswords,
   runtimeUrl,
   sqlState,
@@ -138,7 +139,12 @@ describe('index version activation', () => {
     const otherInstance = uniqueInstanceId('ver-ctx');
     const { versionId } = await createReadyVersion(ingestPool, otherInstance, page('Context', 4));
     const mismatched = ingest(ingestPool, instanceId, (client) =>
-      client.query('SELECT rag.activate_index_version($1, $2)', [otherInstance, versionId]),
+      client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4)', [
+        otherInstance,
+        versionId,
+        'r',
+        'o',
+      ]),
     );
     expect(sqlState(await failureOf(mismatched))).toBe('42501');
   });
@@ -148,8 +154,143 @@ describe('index version activation', () => {
     const attempt = withInstanceTransaction(
       runtime,
       { instanceId, tenantKey: '_', accessTags: ['public'] },
-      (client) => client.query('SELECT rag.activate_index_version($1, $2)', [instanceId, active]),
+      (client) =>
+        client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4)', [
+          instanceId,
+          active,
+          'r',
+          'o',
+        ]),
     );
     expect(sqlState(await failureOf(attempt))).toBe('42501');
+  });
+});
+
+describe('eval gate on activation', () => {
+  const gateInstance = uniqueInstanceId('gate');
+  const gated = { force: false, reason: null, operator: 'ankur' };
+
+  function log() {
+    return ingest(ingestPool, gateInstance, async (client) => {
+      const result = await client.query<{
+        index_version_id: string;
+        forced: boolean;
+        reason: string | null;
+        operator: string;
+      }>('SELECT index_version_id, forced, reason, operator FROM rag.activation_log ORDER BY id');
+      return result.rows;
+    });
+  }
+
+  async function activeVersion(): Promise<string | null> {
+    return ingest(ingestPool, gateInstance, async (client) => {
+      const result = await client.query<{ active: string | null }>(
+        'SELECT active_index_version_id AS active FROM rag.instances',
+      );
+      return result.rows[0]?.active ?? null;
+    });
+  }
+
+  async function gateFailure(versionId: string): Promise<string> {
+    const error = await failureOf(activate(ingestPool, gateInstance, versionId, gated));
+    expect(sqlState(error)).toBe('55000');
+    return (error as Error).message;
+  }
+
+  it('refuses a version without a passing eval run for its own embedding model', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Gated', 6));
+    expect(await gateFailure(versionId)).toContain('has no eval run');
+
+    await recordEval(ingestPool, gateInstance, versionId, false);
+    expect(await gateFailure(versionId)).toContain('failed');
+
+    await recordEval(ingestPool, gateInstance, versionId, true, 'voyage-3.5');
+    expect(await gateFailure(versionId)).toContain('used fake/voyage-3.5');
+
+    expect(await activeVersion()).toBeNull();
+    expect(await log()).toEqual([]);
+  });
+
+  it('activates after a passing run and logs it as not forced', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Passed', 7));
+    await recordEval(ingestPool, gateInstance, versionId, true);
+    expect(await activate(ingestPool, gateInstance, versionId, gated)).toBeNull();
+    expect(await activeVersion()).toBe(versionId);
+    expect(await log()).toEqual([
+      { index_version_id: versionId, forced: false, reason: null, operator: 'ankur' },
+    ]);
+  });
+
+  it('judges only the latest eval run', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Latest', 8));
+    await recordEval(ingestPool, gateInstance, versionId, true);
+    await recordEval(ingestPool, gateInstance, versionId, false);
+    expect(await gateFailure(versionId)).toContain('failed');
+  });
+
+  it('skips the gate only when forced with a reason, and logs the reason', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Forced', 9));
+    const before = await activeVersion();
+    for (const reason of [null, '', '   ']) {
+      const error = await failureOf(
+        activate(ingestPool, gateInstance, versionId, { force: true, reason, operator: 'ankur' }),
+      );
+      expect(sqlState(error), String(reason)).toBe('22023');
+    }
+    for (const args of [
+      { force: null, reason: null, operator: 'ankur' },
+      { force: false, reason: null, operator: null },
+      { force: true, reason: 'r', operator: '  ' },
+    ]) {
+      expect(sqlState(await failureOf(activate(ingestPool, gateInstance, versionId, args)))).toBe(
+        '22023',
+      );
+    }
+    expect(await activeVersion()).toBe(before);
+
+    const forced = { force: true, reason: '  no eval harness yet ', operator: 'ankur' };
+    expect(await activate(ingestPool, gateInstance, versionId, forced)).toBe(before);
+    expect((await log()).at(-1)).toEqual({
+      index_version_id: versionId,
+      forced: true,
+      reason: 'no eval harness yet',
+      operator: 'ankur',
+    });
+  });
+
+  it('removes the ungated two-argument function', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Old', 10));
+    const attempt = ingest(ingestPool, gateInstance, (client) =>
+      client.query('SELECT rag.activate_index_version($1, $2)', [gateInstance, versionId]),
+    );
+    expect(sqlState(await failureOf(attempt))).toBe('42883');
+  });
+
+  it('lets the ingest role add log rows but not choose their time, and hides the log from runtime', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Log', 11));
+    const backdated = ingest(ingestPool, gateInstance, (client) =>
+      client.query(
+        `INSERT INTO rag.activation_log (instance_id, index_version_id, forced, operator, activated_at)
+         VALUES ($1, $2, false, 'x', now() - interval '1 year')`,
+        [gateInstance, versionId],
+      ),
+    );
+    expect(sqlState(await failureOf(backdated))).toBe('42501');
+
+    const unexplained = ingest(ingestPool, gateInstance, (client) =>
+      client.query(
+        `INSERT INTO rag.activation_log (instance_id, index_version_id, forced, operator)
+         VALUES ($1, $2, true, 'x')`,
+        [gateInstance, versionId],
+      ),
+    );
+    expect(sqlState(await failureOf(unexplained))).toBe('23514');
+
+    const read = withInstanceTransaction(
+      runtime,
+      { instanceId: gateInstance, tenantKey: '_', accessTags: ['public'] },
+      (client) => client.query('SELECT count(*) FROM rag.activation_log'),
+    );
+    expect(sqlState(await failureOf(read))).toBe('42501');
   });
 });
