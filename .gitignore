@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and tool state
+.vscode/
+.idea/
+.claude/settings.local.json
+
+# Expo / React Native
+.expo/
+ios/
+android/
