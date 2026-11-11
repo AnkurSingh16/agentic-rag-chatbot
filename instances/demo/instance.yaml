@@ -1,0 +1,26 @@
+# Demo instance with synthetic help docs for "Lumen Notes", a fictional note-taking app.
+# Lumen Notes does not exist; every document under data/ is invented for local development.
+id: demo
+displayName: Lumen Notes help (demo)
+persona:
+  systemPrompt: >-
+    You answer questions about Lumen Notes, a note-taking app, using only the help articles
+    provided. Lumen Notes is fictional and exists only as demo data for this project.
+  answerStyle: Short, factual answers in plain English with citations to the help articles.
+  outOfScope: I can only answer questions about the Lumen Notes help articles.
+  forbiddenTopics:
+    - legal or financial advice
+models:
+  chat: fake-chat
+embedding:
+  provider: fake
+  model: fake-hash-v1
+  dimensions: 1024
+auth:
+  mode: public
+allowedOrigins:
+  - http://localhost:5173
+sources:
+  - type: folder
+    path: data
+evalSet: evals.yaml

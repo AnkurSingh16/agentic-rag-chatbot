@@ -1,0 +1,49 @@
+# Eval set for the demo instance. The questions refer to the synthetic Lumen Notes help docs in
+# data/. Format: docs/guides/create-an-instance.md. The harness that runs it is planned.
+questions:
+  - id: create-note
+    question: How do I create a new note?
+    answer: Choose New note or press Ctrl+N (Cmd+N on macOS).
+    sources: [data/getting-started.md]
+  - id: default-notebook
+    question: Which notebook do new notes go into?
+    answer: The Inbox notebook, unless you pick another one.
+    sources: [data/getting-started.md]
+  - id: sync-delay
+    question: How long does it take for changes to sync?
+    answer: About thirty seconds while the device is online.
+    sources: [data/sync.md]
+  - id: sync-conflict
+    question: What happens if I edit the same note on two devices while one is offline?
+    answer: Both versions are kept; the second copy gets the suffix "(conflict)".
+    sources: [data/sync.md]
+  - id: search-by-tag
+    question: How do I search for notes with a specific tag?
+    answer: Use the tag operator in search, for example tag:recipes.
+    sources: [data/tags-and-search.md]
+  - id: export-formats
+    question: Which formats can I export notes to?
+    answer: Markdown, PDF and HTML.
+    sources: [data/export.md]
+  - id: downgrade-timing
+    question: When does a downgrade take effect?
+    answer: At the end of the current billing period.
+    sources: [data/plans-and-billing.md]
+  - id: offline-search
+    question: Does search work offline?
+    answer: Only for notes already downloaded to the device.
+    sources: [data/offline-mode.md]
+  - id: link-expiry
+    question: Can a shared link expire?
+    answer: Yes, after 1, 7 or 30 days.
+    sources: [data/sharing.md]
+  - id: sidebar-shortcut
+    question: What is the shortcut to toggle the sidebar?
+    answer: Ctrl+\ (Cmd+\ on macOS).
+    sources: [data/keyboard-shortcuts.md]
+  - id: encryption-algorithm
+    question: Which encryption algorithm does Lumen Notes use for stored notes?
+    answerable: false
+  - id: company-headquarters
+    question: Where is the company behind Lumen Notes based?
+    answerable: false
