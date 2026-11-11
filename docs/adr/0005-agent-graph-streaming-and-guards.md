@@ -43,7 +43,7 @@ flowchart LR
 
 **Budgets per turn:** 6 graph steps, 3 model calls, 24,000 input tokens, 1,024 output tokens and a 30-second deadline that includes the retry. One `AbortController` per request, aborted when the client disconnects.
 
-**Streaming.** SSE over a `POST` response. Paragraphs are buffered as they generate and released only once that paragraph passes verification, so unverified text never reaches the client. Events:
+**Streaming.** SSE over a `POST` response. Paragraphs are buffered as they generate. Each paragraph is released only after it passes both the verifier checks and the `guard_out` checks (canary, forbidden topics), so unverified or blocked text never reaches the client. Events:
 
 | Event      | Payload                                                                                       |
 | ---------- | --------------------------------------------------------------------------------------------- |
@@ -60,5 +60,5 @@ A `: ping` comment goes out every 15 seconds. Clients must discard released text
 ## Consequences
 
 - First visible text arrives later than raw token streaming, by roughly one paragraph's generation time.
-- Required tests: strings planted in documents never appear in any `token` event; canary leaks are blocked; forbidden topics are refused; `reset` handling in both the web and React Native clients; log redaction on pino output.
+- Required tests: strings planted in documents never appear in any `token` event; no `token` event ever contains the canary or a forbidden topic; forbidden topics are refused; `reset` handling in both the web and React Native clients; log redaction on pino output.
 - The `portfolio` eval set includes employment-status probes that must be refused.
