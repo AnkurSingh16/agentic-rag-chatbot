@@ -88,8 +88,8 @@ CREATE POLICY messages_runtime ON rag.messages TO rag_runtime
   WITH CHECK (instance_id = rag.current_instance() AND owner_key = rag.current_owner());
 
 CREATE POLICY feedback_runtime ON rag.feedback TO rag_runtime
-  USING (instance_id = rag.current_instance())
-  WITH CHECK (instance_id = rag.current_instance());
+  USING (instance_id = rag.current_instance() AND owner_key = rag.current_owner())
+  WITH CHECK (instance_id = rag.current_instance() AND owner_key = rag.current_owner());
 
 CREATE POLICY usage_counters_runtime ON rag.usage_counters TO rag_runtime
   USING (instance_id = rag.current_instance())

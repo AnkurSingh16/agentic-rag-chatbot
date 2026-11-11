@@ -29,7 +29,7 @@ All tables live in schema `rag`, are owned by `rag_migrator`, and have row-level
 | `embedding_cache`   | `(instance_id, model, content_sha256)` | Embeddings reused by incremental training. The key includes the instance so the cache never crosses instances.                 |
 | `conversations`     | `id`                                   | Owned by `owner_key`, a hash of the session ID or token subject.                                                               |
 | `messages`          | `id`                                   | Conversation turns; carry `owner_key` so the owner policy needs no join.                                                       |
-| `feedback`          | `id`                                   | A rating of -1 or 1 on a message.                                                                                              |
+| `feedback`          | `id`                                   | A rating of -1 or 1 on a message, owned by the message's `owner_key`.                                                          |
 | `usage_counters`    | `(instance_id, scope, day)`            | Daily token and request counts per instance, IP prefix or session.                                                             |
 | `usage_global`      | `day`                                  | Daily token and request counts across all instances.                                                                           |
 | `schema_migrations` | `name`                                 | Applied migration files and their SHA-256 checksums.                                                                           |
@@ -37,7 +37,7 @@ All tables live in schema `rag`, are owned by `rag_migrator`, and have row-level
 Integrity rules enforced by constraints:
 
 - Corpus rows need `cardinality(access_tags) >= 1`; `tenant_key` defaults to `_`.
-- Composite foreign keys tie every row to one instance: a version, document, chunk, message or feedback row cannot reference a row of another instance, and a chunk's `tenant_key` must equal its document's.
+- Composite foreign keys tie every row to one instance: a version, document, chunk, message or feedback row cannot reference a row of another instance, a chunk's `tenant_key` must equal its document's, and a message or feedback row must have its conversation's `owner_key`.
 - At most one version per instance is `active` (partial unique index). `activated_at` is set exactly for `active` and `retired` versions.
 - `embedding_dimensions` must be 1024, matching the column type (ADR 0006).
 
@@ -60,15 +60,15 @@ An unset or empty setting returns NULL. A comparison with NULL is never true, so
 
 Every policy names its role, so a role without a policy on a table sees nothing there, the owner included.
 
-| Table                          | `rag_runtime`                                                                        | `rag_ingest`                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `instances`                    | read own instance                                                                    | read and insert own instance                                                                                 |
-| `index_versions`               | read own instance                                                                    | read; insert as `building`; update only while `building`, to `building` or `ready`; delete when not `active` |
-| `documents`, `chunks`          | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                     |
-| `eval_runs`, `embedding_cache` | none                                                                                 | read and write own instance                                                                                  |
-| `conversations`, `messages`    | read and write where instance and `owner_key` match                                  | none                                                                                                         |
-| `feedback`, `usage_counters`   | read and write own instance                                                          | none                                                                                                         |
-| `usage_global`                 | read and write when any instance context is set                                      | none                                                                                                         |
+| Table                                   | `rag_runtime`                                                                        | `rag_ingest`                                                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `instances`                             | read own instance                                                                    | read and insert own instance                                                                                 |
+| `index_versions`                        | read own instance                                                                    | read; insert as `building`; update only while `building`, to `building` or `ready`; delete when not `active` |
+| `documents`, `chunks`                   | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                     |
+| `eval_runs`, `embedding_cache`          | none                                                                                 | read and write own instance                                                                                  |
+| `conversations`, `messages`, `feedback` | read and write where instance and `owner_key` match                                  | none                                                                                                         |
+| `usage_counters`                        | read and write own instance                                                          | none                                                                                                         |
+| `usage_global`                          | read and write when any instance context is set                                      | none                                                                                                         |
 
 The corpus policy, as in ADR 0003:
 

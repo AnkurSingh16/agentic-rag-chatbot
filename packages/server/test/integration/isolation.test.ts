@@ -285,49 +285,58 @@ describe('corpus write permissions', () => {
 });
 
 describe('conversation row-level security', () => {
-  it('binds conversations and messages to their owner', async () => {
+  it('binds conversations, messages and feedback to their owner', async () => {
     const owner = {
       instanceId: instanceA,
       tenantKey: '_',
       accessTags: ['public'],
       ownerKey: 'owner-1',
     };
-    const conversationId = await withInstanceTransaction(runtime, owner, async (client) => {
-      const created = await client.query<{ id: string }>(
-        `INSERT INTO rag.conversations (instance_id, owner_key, expires_at)
+    const { conversationId, messageId } = await withInstanceTransaction(
+      runtime,
+      owner,
+      async (client) => {
+        const created = await client.query<{ id: string }>(
+          `INSERT INTO rag.conversations (instance_id, owner_key, expires_at)
          VALUES ($1, $2, now() + interval '1 day') RETURNING id`,
-        [instanceA, 'owner-1'],
-      );
-      const id = created.rows[0]?.id ?? '';
-      await client.query(
-        `INSERT INTO rag.messages (instance_id, conversation_id, owner_key, role, content)
-         VALUES ($1, $2, $3, 'user', 'hello')`,
-        [instanceA, id, 'owner-1'],
-      );
-      return id;
-    });
+          [instanceA, 'owner-1'],
+        );
+        const id = created.rows[0]?.id ?? '';
+        const message = await client.query<{ id: string }>(
+          `INSERT INTO rag.messages (instance_id, conversation_id, owner_key, role, content)
+         VALUES ($1, $2, $3, 'user', 'hello') RETURNING id`,
+          [instanceA, id, 'owner-1'],
+        );
+        const messageId = message.rows[0]?.id ?? '';
+        await client.query(
+          `INSERT INTO rag.feedback (instance_id, message_id, owner_key, rating) VALUES ($1, $2, $3, 1)`,
+          [instanceA, messageId, 'owner-1'],
+        );
+        return { conversationId: id, messageId };
+      },
+    );
 
     const countFor = (access: InstanceAccess) =>
       withInstanceTransaction(runtime, access, async (client) => {
-        const result = await client.query<{ conversations: string; messages: string }>(
+        const result = await client.query<{
+          conversations: string;
+          messages: string;
+          feedback: string;
+        }>(
           `SELECT (SELECT count(*) FROM rag.conversations WHERE id = $1) AS conversations,
-                  (SELECT count(*) FROM rag.messages WHERE conversation_id = $1) AS messages`,
-          [conversationId],
+                  (SELECT count(*) FROM rag.messages WHERE conversation_id = $1) AS messages,
+                  (SELECT count(*) FROM rag.feedback WHERE message_id = $2) AS feedback`,
+          [conversationId, messageId],
         );
         return result.rows[0];
       });
 
-    expect(await countFor(owner)).toEqual({ conversations: '1', messages: '1' });
-    expect(await countFor({ ...owner, ownerKey: 'owner-2' })).toEqual({
-      conversations: '0',
-      messages: '0',
-    });
+    const none = { conversations: '0', messages: '0', feedback: '0' };
+    expect(await countFor(owner)).toEqual({ conversations: '1', messages: '1', feedback: '1' });
+    expect(await countFor({ ...owner, ownerKey: 'owner-2' })).toEqual(none);
     const withoutOwner = { instanceId: instanceA, tenantKey: '_', accessTags: ['public'] };
-    expect(await countFor(withoutOwner)).toEqual({ conversations: '0', messages: '0' });
-    expect(await countFor({ ...owner, instanceId: instanceB })).toEqual({
-      conversations: '0',
-      messages: '0',
-    });
+    expect(await countFor(withoutOwner)).toEqual(none);
+    expect(await countFor({ ...owner, instanceId: instanceB })).toEqual(none);
 
     const intruder = failureOf(
       withInstanceTransaction(runtime, { ...owner, ownerKey: 'owner-2' }, (client) =>
@@ -339,5 +348,18 @@ describe('conversation row-level security', () => {
       ),
     );
     expect(sqlState(await intruder)).toBe('42501');
+
+    const rateAs = (ownerKey: string) =>
+      failureOf(
+        withInstanceTransaction(runtime, { ...owner, ownerKey: 'owner-2' }, (client) =>
+          client.query(
+            'INSERT INTO rag.feedback (instance_id, message_id, owner_key, rating) VALUES ($1, $2, $3, -1)',
+            [instanceA, messageId, ownerKey],
+          ),
+        ),
+      );
+    // Claiming the real owner fails the policy; using one's own key fails the owner-bound key.
+    expect(sqlState(await rateAs('owner-1'))).toBe('42501');
+    expect(sqlState(await rateAs('owner-2'))).toBe('23503');
   });
 });

@@ -22,7 +22,7 @@ CREATE TABLE rag.messages (
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (instance_id, owner_key, conversation_id)
     REFERENCES rag.conversations (instance_id, owner_key, id) ON DELETE CASCADE,
-  UNIQUE (instance_id, id)
+  UNIQUE (instance_id, owner_key, id)
 );
 
 CREATE INDEX messages_conversation ON rag.messages (conversation_id, created_at);
@@ -31,13 +31,16 @@ CREATE TABLE rag.feedback (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   instance_id text NOT NULL,
   message_id uuid NOT NULL,
+  -- Only the owner of a conversation can rate its messages or read those ratings.
+  owner_key text NOT NULL,
   rating smallint NOT NULL CHECK (rating IN (-1, 1)),
   comment text NOT NULL DEFAULT '' CHECK (length(comment) <= 2000),
   created_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (instance_id, message_id) REFERENCES rag.messages (instance_id, id) ON DELETE CASCADE
+  FOREIGN KEY (instance_id, owner_key, message_id)
+    REFERENCES rag.messages (instance_id, owner_key, id) ON DELETE CASCADE
 );
 
-CREATE INDEX feedback_message ON rag.feedback (instance_id, message_id);
+CREATE INDEX feedback_message ON rag.feedback (instance_id, owner_key, message_id);
 
 -- scope names the counter: the instance itself, a client IP prefix or a session (ADR 0004).
 CREATE TABLE rag.usage_counters (
