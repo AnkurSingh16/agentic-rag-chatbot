@@ -1,7 +1,9 @@
--- Caps what one call to rag.consume_usage can add (issue #15). Without a cap, a single call close
--- to the bigint maximum made every later call overflow for the rest of the UTC day, for every
--- instance, because they all share the global counter. One call accounts for one chat turn: at
--- most one request, and at most 100,000 tokens of input and output together.
+-- Guards rag.consume_usage against overflow (issue #15). Without a bound, a single call close to
+-- the bigint maximum made every later call overflow for the rest of the UTC day, for every
+-- instance, because they all share the global counter. The bound sits far above any real call, so
+-- real usage is always recorded in full and budgets are enforced by the server against the totals
+-- (ADR 0004), never by dropping spend here. At 10,000,000 tokens and 1,000 requests per call, the
+-- counters need about 900 billion calls in one day to reach the bigint maximum.
 CREATE OR REPLACE FUNCTION rag.consume_usage(p_scopes text[], p_tokens bigint, p_requests bigint)
 RETURNS TABLE (counter_scope text, total_tokens bigint, total_requests bigint)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, rag, pg_temp AS $$
@@ -16,8 +18,8 @@ BEGIN
   IF p_tokens IS NULL OR p_requests IS NULL OR p_tokens < 0 OR p_requests < 0 THEN
     RAISE EXCEPTION 'usage deltas must be non-negative' USING ERRCODE = '22023';
   END IF;
-  IF p_tokens > 100000 OR p_requests > 1 THEN
-    RAISE EXCEPTION 'usage deltas exceed one turn (at most 100000 tokens and 1 request per call)'
+  IF p_tokens > 10000000 OR p_requests > 1000 THEN
+    RAISE EXCEPTION 'usage deltas exceed the overflow guard (at most 10000000 tokens and 1000 requests per call)'
       USING ERRCODE = '22023';
   END IF;
   IF p_scopes IS NULL OR cardinality(p_scopes) = 0 OR array_position(p_scopes, NULL) IS NOT NULL THEN

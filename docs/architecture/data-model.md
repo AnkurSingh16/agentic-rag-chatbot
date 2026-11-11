@@ -112,7 +112,7 @@ Not enforced by the function: the eval gate and keeping only the last three vers
 
 `rag.consume_usage(scopes text[], tokens bigint, requests bigint)` is the only way to change the usage counters (ADR 0004). It is `SECURITY DEFINER` with `search_path = pg_catalog, rag, pg_temp`, and only `rag_runtime` can execute it. It:
 
-1. Requires an instance context (`42501` otherwise) and rejects negative or NULL deltas and an empty or NULL-containing scope list (`22023`).
+1. Requires an instance context (`42501` otherwise) and rejects negative or NULL deltas, deltas above the overflow guard (more than 10,000,000 tokens or 1,000 requests in one call), and an empty or NULL-containing scope list (`22023`). The guard keeps one call from pushing the shared global counter to the `bigint` maximum; it is far above any real call, so real usage is always recorded in full (ADR 0004).
 2. Adds the deltas to each distinct scope of the caller's instance in `usage_counters`, and once to `usage_global`, for the current UTC day, with `INSERT ... ON CONFLICT DO UPDATE`, so concurrent replicas cannot lose an increment.
 3. Returns the new totals as rows of `(counter_scope, total_tokens, total_requests)`; the global row has a NULL `counter_scope`.
 
@@ -176,5 +176,5 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - activation moves the pointer and retires the previous version; rollback to a retired version works; building, already active, foreign-instance and mismatched-context activations are refused;
 - conversations, messages and feedback are visible only to their owner; another owner cannot add messages or feedback to them;
 - conversation expiry is capped at 30 days after creation, and `created_at` cannot be supplied;
-- usage counters only increase through `rag.consume_usage`; negative deltas, a missing context and direct writes are rejected;
+- usage counters only increase through `rag.consume_usage`; negative deltas, deltas above the overflow guard, a missing context and direct writes are rejected, and calls within the guard are recorded in full;
 - a `ready` version cannot be edited or reopened by `rag_ingest`.

@@ -434,14 +434,14 @@ describe('usage counters', () => {
     expect(Number(second.global?.[0]) - Number(firstGlobal[0])).toBeGreaterThanOrEqual(5);
   });
 
-  it('caps one call at 100,000 tokens and one request, and leaves counters unchanged when over', async () => {
-    const scope = `cap:${instanceA}`;
-    const accepted = await consume([scope], 100_000, 1);
-    expect(accepted[scope]).toEqual(['100000', '1']);
+  it('records large calls in full and rejects only calls above the overflow guard', async () => {
+    const scope = `guard:${instanceA}`;
+    expect((await consume([scope], 250_000, 3))[scope]).toEqual(['250000', '3']);
+    expect((await consume([scope], 10_000_000, 1000))[scope]).toEqual(['10250000', '1003']);
 
     for (const [tokens, requests] of [
-      [100_001, 0],
-      [0, 2],
+      [10_000_001, 0],
+      [0, 1001],
       ['9223372036854775807', 0],
       [0, '9223372036854775807'],
     ] as const) {
@@ -453,7 +453,7 @@ describe('usage counters', () => {
       );
     }
 
-    expect((await consume([scope], 0, 0))[scope]).toEqual(['100000', '1']);
+    expect((await consume([scope], 0, 0))[scope]).toEqual(['10250000', '1003']);
   });
 
   it('rejects negative deltas, a missing instance context and direct writes', async () => {
