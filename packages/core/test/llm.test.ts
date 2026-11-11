@@ -48,6 +48,21 @@ describe('formatContext and parseContext', () => {
     ]);
     expect(formatContext([])).toBe('');
   });
+
+  it('parses adversarial input in linear time', () => {
+    const unit = '<document citation="" title="">\na';
+    const input = unit.repeat(Math.ceil(100_000 / unit.length));
+    expect(input.length).toBeGreaterThanOrEqual(100_000);
+    const started = performance.now();
+    expect(parseContext(input)).toEqual([]);
+    expect(parseContext(`${input}\n</document>`)).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('skips headers whose attributes are not escaped', () => {
+    const context = '<document citation="a"b" title="t">\nx\n</document>';
+    expect(parseContext(context)).toEqual([]);
+  });
 });
 
 describe('createMockChatModel', () => {

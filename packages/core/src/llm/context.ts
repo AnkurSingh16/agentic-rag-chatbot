@@ -5,7 +5,10 @@ export interface ContextDocument {
   text: string;
 }
 
-const DOCUMENT = /<document citation="([^"]*)" title="([^"]*)">\n([\s\S]*?)\n<\/document>/g;
+const OPEN = '<document citation="';
+const TITLE = '" title="';
+const OPEN_END = '">\n';
+const CLOSE = '\n</document>';
 
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
@@ -36,11 +39,30 @@ export function formatContext(documents: readonly ContextDocument[]): string {
   return `<documents>\n${body}\n</documents>`;
 }
 
-/** The inverse of {@link formatContext}, used by the mock model. Text keeps its escaping. */
+/**
+ * The inverse of {@link formatContext}, used by the mock model. Text keeps its escaping. Scans
+ * with indexOf so the time is linear in the input length, whatever the input holds.
+ */
 export function parseContext(context: string): ContextDocument[] {
-  return [...context.matchAll(DOCUMENT)].map((match) => ({
-    citationId: unescapeAttribute(match[1] ?? ''),
-    title: unescapeAttribute(match[2] ?? ''),
-    text: match[3] ?? '',
-  }));
+  const documents: ContextDocument[] = [];
+  let position = context.indexOf(OPEN);
+  while (position !== -1) {
+    const citationStart = position + OPEN.length;
+    const titleAt = context.indexOf(TITLE, citationStart);
+    const openEndAt = titleAt === -1 ? -1 : context.indexOf(OPEN_END, titleAt + TITLE.length);
+    const closeAt = openEndAt === -1 ? -1 : context.indexOf(CLOSE, openEndAt + OPEN_END.length);
+    if (closeAt === -1) break;
+    const citationId = context.slice(citationStart, titleAt);
+    const title = context.slice(titleAt + TITLE.length, openEndAt);
+    // Attribute values are escaped, so a quote inside one means this is not a formatted header.
+    if (!citationId.includes('"') && !title.includes('"')) {
+      documents.push({
+        citationId: unescapeAttribute(citationId),
+        title: unescapeAttribute(title),
+        text: context.slice(openEndAt + OPEN_END.length, closeAt),
+      });
+    }
+    position = context.indexOf(OPEN, closeAt + CLOSE.length);
+  }
+  return documents;
 }
