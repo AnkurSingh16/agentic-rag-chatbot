@@ -62,12 +62,13 @@ erDiagram
   instances ||--o{ usage_counters : meters
 ```
 
-Corpus rows (`documents`, `chunks`) carry `instance_id`, `tenant_key` and `access_tags`. Forced RLS filters them by the transaction's instance, an exact tenant match, and overlapping tags.
+Corpus rows (`documents`, `chunks`) carry `instance_id`, `tenant_key` and `access_tags`. Forced RLS filters them by the transaction's instance, an exact tenant match, and overlapping tags. Tables, policies, roles and the transaction pattern are described in [Data model](data-model.md).
 
 ## Where to read more
 
 | Topic                             | ADR                                                           |
 | --------------------------------- | ------------------------------------------------------------- |
+| Schema, RLS policies and roles    | [Data model](data-model.md)                                   |
 | Packages and boundaries           | [0001](../adr/0001-platform-architecture.md)                  |
 | Instances, training, rollback     | [0002](../adr/0002-instances-and-index-versions.md)           |
 | Access modes and RLS              | [0003](../adr/0003-access-modes-and-row-level-security.md)    |

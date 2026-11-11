@@ -29,7 +29,7 @@ flowchart LR
 | Path                    | Purpose                                                  | State       |
 | ----------------------- | -------------------------------------------------------- | ----------- |
 | `packages/core`         | Agent graph, retrieval, ingestion, provider interfaces   | In progress |
-| `packages/server`       | Fastify plugin, mountable at any prefix                  | Planned     |
+| `packages/server`       | PostgreSQL storage (done); Fastify plugin (planned)      | In progress |
 | `packages/client`       | Headless streaming client for web and mobile             | Planned     |
 | `packages/react`        | React hooks, `<ChatWidget>` and the script-tag bundle    | Planned     |
 | `packages/react-native` | React Native hooks and chat components                   | Planned     |
@@ -46,6 +46,8 @@ Requires Node 24 and npm.
 npm install
 npm run check   # lint, format check, typecheck, tests with coverage, build
 ```
+
+For the database: `docker compose up -d`, `npm run build`, `npm run db:migrate`, then `npm run test:integration`. See [the data model](docs/architecture/data-model.md) for the required `.env` settings.
 
 See [docs/development](docs/development) for conventions and the PR workflow, and [docs/adr](docs/adr) for design decisions.
 
