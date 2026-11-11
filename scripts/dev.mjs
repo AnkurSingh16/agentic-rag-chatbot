@@ -27,6 +27,14 @@ if (live && apiKey === undefined) {
   );
 }
 
+// The server refuses a generated secret in live mode; say so before building anything.
+if (live && !process.env.SESSION_SECRET) {
+  fail(
+    'npm run dev:live needs SESSION_SECRET in .env (at least 32 characters). Generate one with:\n' +
+      `  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+  );
+}
+
 const env = {
   ...process.env,
   LLM_PROVIDER: live ? 'anthropic' : 'mock',

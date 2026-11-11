@@ -17,6 +17,7 @@ export interface AppConfig {
 }
 
 const MIN_SECRET_LENGTH = 32;
+const LOOPBACK: ReadonlySet<string> = new Set(['localhost', '::1', '[::1]']);
 
 function setting(env: Environment, name: string): string | undefined {
   const value = env[name]?.trim();
@@ -38,13 +39,25 @@ export function readAppConfig(env: Environment, cwd: string): AppConfig {
     throw new ChatbotError('invalid_config', 'AUTH_MODE applies to INSTANCE_ID, which is not set');
   }
 
+  const host = setting(env, 'HOST') ?? '127.0.0.1';
   let sessionSecret = setting(env, 'SESSION_SECRET');
   const sessionSecretGenerated = sessionSecret === undefined;
   if (sessionSecret === undefined) {
-    if (env.NODE_ENV === 'production') {
+    // A random secret per start is only acceptable for a local, unbilled server: anywhere else a
+    // restart would silently end every session, and live mode spends money per request.
+    const loopback = LOOPBACK.has(host) || host.startsWith('127.');
+    const reason =
+      env.NODE_ENV === 'production'
+        ? 'NODE_ENV=production'
+        : setting(env, 'LLM_PROVIDER') === 'anthropic'
+          ? 'LLM_PROVIDER=anthropic'
+          : loopback
+            ? undefined
+            : `HOST=${host} is not a loopback address`;
+    if (reason !== undefined) {
       throw new ChatbotError(
         'invalid_config',
-        'SESSION_SECRET is required when NODE_ENV=production',
+        `SESSION_SECRET is required when ${reason}; generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
       );
     }
     sessionSecret = randomBytes(32).toString('base64url');
@@ -59,7 +72,7 @@ export function readAppConfig(env: Environment, cwd: string): AppConfig {
     databaseUrl,
     instancesDir: resolve(cwd, setting(env, 'INSTANCES_DIR') ?? 'instances'),
     instanceId,
-    host: setting(env, 'HOST') ?? '127.0.0.1',
+    host,
     port,
     sessionSecret,
     sessionSecretGenerated,

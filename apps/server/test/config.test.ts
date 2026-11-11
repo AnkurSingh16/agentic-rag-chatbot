@@ -75,11 +75,32 @@ describe('readAppConfig', () => {
     });
   });
 
+  it('accepts a generated secret on loopback hosts in mock mode', () => {
+    for (const HOST of ['127.0.0.1', 'localhost', '::1', '127.0.0.2']) {
+      expect(
+        readAppConfig({ ...BASE, HOST, LLM_PROVIDER: 'mock' }, '/').sessionSecretGenerated,
+      ).toBe(true);
+    }
+    const live = {
+      ...BASE,
+      LLM_PROVIDER: 'anthropic',
+      HOST: '0.0.0.0',
+      SESSION_SECRET: 's'.repeat(64),
+    };
+    expect(readAppConfig(live, '/').sessionSecretGenerated).toBe(false);
+  });
+
   it.each([
     [{}, 'DATABASE_URL is not set'],
     [{ ...BASE, PORT: 'eighty' }, 'PORT must be an integer'],
     [{ ...BASE, AUTH_MODE: 'rbac' }, 'AUTH_MODE applies to INSTANCE_ID'],
-    [{ ...BASE, NODE_ENV: 'production' }, 'SESSION_SECRET is required'],
+    [{ ...BASE, NODE_ENV: 'production' }, 'SESSION_SECRET is required when NODE_ENV=production'],
+    [
+      { ...BASE, LLM_PROVIDER: 'anthropic' },
+      'SESSION_SECRET is required when LLM_PROVIDER=anthropic',
+    ],
+    [{ ...BASE, HOST: '0.0.0.0' }, 'HOST=0.0.0.0 is not a loopback address'],
+    [{ ...BASE, HOST: '192.168.1.10' }, 'HOST=192.168.1.10 is not a loopback address'],
     [{ ...BASE, SESSION_SECRET: 'short' }, 'at least 32 characters'],
   ])('rejects %j', (env, message) => {
     expect(() => readAppConfig(env, '/srv')).toThrow(message);
