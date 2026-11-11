@@ -60,15 +60,15 @@ An unset or empty setting returns NULL. A comparison with NULL is never true, so
 
 Every policy names its role, so a role without a policy on a table sees nothing there, the owner included.
 
-| Table                          | `rag_runtime`                                                                        | `rag_ingest`                                                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `instances`                    | read own instance                                                                    | read and insert own instance                                                                                                    |
-| `index_versions`               | read own instance                                                                    | read; insert as `building`; update only while `building` or `ready`, and not to `active` or `retired`; delete when not `active` |
-| `documents`, `chunks`          | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                                        |
-| `eval_runs`, `embedding_cache` | none                                                                                 | read and write own instance                                                                                                     |
-| `conversations`, `messages`    | read and write where instance and `owner_key` match                                  | none                                                                                                                            |
-| `feedback`, `usage_counters`   | read and write own instance                                                          | none                                                                                                                            |
-| `usage_global`                 | read and write when any instance context is set                                      | none                                                                                                                            |
+| Table                          | `rag_runtime`                                                                        | `rag_ingest`                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `instances`                    | read own instance                                                                    | read and insert own instance                                                                                 |
+| `index_versions`               | read own instance                                                                    | read; insert as `building`; update only while `building`, to `building` or `ready`; delete when not `active` |
+| `documents`, `chunks`          | read where instance matches, `tenant_key` is equal and `access_tags` overlap (below) | read own instance; insert only into a `building` version                                                     |
+| `eval_runs`, `embedding_cache` | none                                                                                 | read and write own instance                                                                                  |
+| `conversations`, `messages`    | read and write where instance and `owner_key` match                                  | none                                                                                                         |
+| `feedback`, `usage_counters`   | read and write own instance                                                          | none                                                                                                         |
+| `usage_global`                 | read and write when any instance context is set                                      | none                                                                                                         |
 
 The corpus policy, as in ADR 0003:
 
@@ -80,7 +80,7 @@ AND access_tags && rag.current_access_tags()
 
 Tenants match by equality and tags by overlap, so a north user holding `faq` never sees a south document tagged `faq`.
 
-Because corpus rows can only be inserted into a `building` version, a version is immutable once it is `ready`. Rolling back serves exactly what was evaluated.
+Because corpus rows can only be inserted into a `building` version and `rag_ingest` can update only `building` versions, a version is immutable once it is `ready`. Rolling back serves exactly what was evaluated.
 
 ## Roles
 

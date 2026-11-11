@@ -121,9 +121,10 @@ CREATE POLICY index_versions_ingest_select ON rag.index_versions FOR SELECT TO r
   USING (instance_id = rag.current_instance());
 CREATE POLICY index_versions_ingest_insert ON rag.index_versions FOR INSERT TO rag_ingest
   WITH CHECK (instance_id = rag.current_instance() AND status = 'building');
--- Only rag.activate_index_version moves a version to active or retired.
+-- Ingest can edit a version only while it is building, and finish it by marking it ready.
+-- A ready version is immutable to ingest; only rag.activate_index_version changes it further.
 CREATE POLICY index_versions_ingest_update ON rag.index_versions FOR UPDATE TO rag_ingest
-  USING (instance_id = rag.current_instance() AND status IN ('building', 'ready'))
+  USING (instance_id = rag.current_instance() AND status = 'building')
   WITH CHECK (instance_id = rag.current_instance() AND status IN ('building', 'ready'));
 CREATE POLICY index_versions_ingest_delete ON rag.index_versions FOR DELETE TO rag_ingest
   USING (instance_id = rag.current_instance() AND status <> 'active');

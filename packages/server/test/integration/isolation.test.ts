@@ -257,10 +257,19 @@ describe('corpus write permissions', () => {
     const { versionId } = await createReadyVersion(ingestPool, instanceA, [
       { label: 'extra', tenantKey: '_', accessTags: ['public'], content: 'Extra page', axis: 6 },
     ]);
+    // A building version may become ready, never active.
     const direct = failureOf(
-      ingest(ingestPool, instanceA, (client) =>
-        client.query("UPDATE rag.index_versions SET status = 'active' WHERE id = $1", [versionId]),
-      ),
+      ingest(ingestPool, instanceA, async (client) => {
+        const building = await client.query<{ id: string }>(
+          `INSERT INTO rag.index_versions
+             (instance_id, embedding_provider, embedding_model, embedding_dimensions, chunker_hash, config_hash)
+           VALUES ($1, 'fake', 'fake-1024', 1024, $2, $2) RETURNING id`,
+          [instanceA, 'e'.repeat(64)],
+        );
+        return client.query("UPDATE rag.index_versions SET status = 'active' WHERE id = $1", [
+          building.rows[0]?.id,
+        ]);
+      }),
     );
     expect(sqlState(await direct)).toBe('42501');
     const pointer = failureOf(

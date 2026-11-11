@@ -110,6 +110,30 @@ describe('index version activation', () => {
     expect(await state()).toEqual(before);
   });
 
+  it('keeps a ready version immutable to the ingest role', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, instanceId, page('Frozen', 5));
+    const edits = await ingest(ingestPool, instanceId, async (client) => {
+      const reopen = await client.query(
+        "UPDATE rag.index_versions SET status = 'building' WHERE id = $1",
+        [versionId],
+      );
+      const recount = await client.query(
+        'UPDATE rag.index_versions SET document_count = 99, chunk_count = 99 WHERE id = $1',
+        [versionId],
+      );
+      const row = await client.query<{ status: string; document_count: number }>(
+        'SELECT status, document_count FROM rag.index_versions WHERE id = $1',
+        [versionId],
+      );
+      return { reopened: reopen.rowCount, recounted: recount.rowCount, row: row.rows[0] };
+    });
+    expect(edits).toEqual({
+      reopened: 0,
+      recounted: 0,
+      row: { status: 'ready', document_count: 1 },
+    });
+  });
+
   it('requires the caller to be in the same instance context', async () => {
     const otherInstance = uniqueInstanceId('ver-ctx');
     const { versionId } = await createReadyVersion(ingestPool, otherInstance, page('Context', 4));
