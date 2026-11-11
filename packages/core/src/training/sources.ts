@@ -5,18 +5,18 @@ import { ChatbotError } from '../errors.js';
 import { sha256Hex } from '../hash.js';
 import { parseFrontMatter } from './front-matter.js';
 import { htmlToText } from './html.js';
-
-/** The part of the Fetch API the URL loader uses, so tests can inject a stub. */
-export type FetchLike = (
-  url: string,
-  init: { signal: AbortSignal; headers: Record<string, string>; redirect: 'follow' },
-) => Promise<Response>;
+import { fetchPublicUrl } from './url-fetch.js';
+import type { FetchLike, LookupLike } from './url-fetch.js';
 
 /** Where and how sources are read. */
 export interface SourceAccess {
   /** Folder sources resolve relative to this directory, normally `instances/<id>`. */
   baseDir: string;
   fetch: FetchLike;
+  /** Resolves URL host names before connecting. Defaults to the system resolver. */
+  lookup?: LookupLike;
+  /** Timeout for each URL request, including reading its body. Defaults to 10 seconds. */
+  requestTimeoutMs?: number;
   /** Largest document accepted from a file or URL. Defaults to {@link DEFAULT_MAX_DOCUMENT_BYTES}. */
   maxDocumentBytes?: number;
 }
@@ -137,30 +137,41 @@ async function loadUrl(
   limit: number,
   signal: AbortSignal,
 ): Promise<LoadedDocument> {
-  let response: Response;
-  try {
-    response = await access.fetch(url, {
-      signal,
+  const response = await fetchPublicUrl(
+    url,
+    {
+      fetch: access.fetch,
+      ...(access.lookup === undefined ? {} : { lookup: access.lookup }),
+      ...(access.requestTimeoutMs === undefined ? {} : { timeoutMs: access.requestTimeoutMs }),
       headers: { accept: 'text/markdown, text/plain, text/html;q=0.9' },
-      redirect: 'follow',
-    });
-  } catch (error) {
-    signal.throwIfAborted();
-    throw new ChatbotError('provider_unavailable', `${url}: request failed`, { cause: error });
-  }
+    },
+    signal,
+  );
   if (!response.ok) {
+    await response.body?.cancel();
     throw new ChatbotError('invalid_input', `${url}: server answered ${response.status}`);
   }
   const contentType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? '';
   const isHtml = contentType === 'text/html' || contentType === 'application/xhtml+xml';
   const isMarkdown = contentType === 'text/markdown' || contentType === 'text/x-markdown';
   if (!isHtml && !isMarkdown && contentType !== 'text/plain') {
+    await response.body?.cancel();
     throw new ChatbotError(
       'invalid_input',
       `${url}: unsupported content type "${contentType}"; expected text/html, text/markdown or text/plain`,
     );
   }
-  const raw = await readCapped(response, url, limit);
+  let raw: string;
+  try {
+    raw = await readCapped(response, url, limit);
+  } catch (error) {
+    if (error instanceof ChatbotError) throw error;
+    signal.throwIfAborted();
+    // The request timeout also covers the body, so a stalled download ends here.
+    throw new ChatbotError('provider_unavailable', `${url}: reading the response failed`, {
+      cause: error,
+    });
+  }
   if (isHtml) {
     const { title, text } = htmlToText(raw);
     return {
@@ -186,7 +197,8 @@ async function loadUrl(
 /**
  * Reads every configured source and returns the documents sorted by source
  * URI. Folder sources read `.md`, `.markdown` and `.txt` files recursively;
- * URL sources accept HTML, markdown and plain text. Sitemap and GitHub sources
+ * URL sources accept HTML, markdown and plain text, fetched over https from
+ * public addresses only (see `fetchPublicUrl`). Sitemap and GitHub sources
  * are planned and rejected for now.
  *
  * @throws ChatbotError `invalid_config` for unsupported or unreadable sources

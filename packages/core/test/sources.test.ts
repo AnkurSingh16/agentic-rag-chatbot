@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChatbotError, loadDocuments } from '../src/index.js';
-import type { FetchLike, SourceConfig } from '../src/index.js';
+import type { FetchLike, LookupLike, SourceConfig } from '../src/index.js';
 import { parseFrontMatter } from '../src/training/front-matter.js';
 import { htmlToText } from '../src/training/html.js';
 
@@ -26,6 +26,8 @@ async function instanceDir(files: Record<string, string>): Promise<string> {
 }
 
 const noFetch: FetchLike = () => Promise.reject(new Error('no network'));
+// A documentation address (RFC 5737) standing in for any public host, so no test uses real DNS.
+const publicDns: LookupLike = () => Promise.resolve([{ address: '192.0.2.10' }]);
 
 function fetchReturning(pages: Record<string, Response>): FetchLike & { urls: string[] } {
   const urls: string[] = [];
@@ -131,7 +133,7 @@ describe('url sources', () => {
     });
     const [document] = await loadDocuments(
       urls('https://help.example.com/a'),
-      { baseDir: '/', fetch },
+      { baseDir: '/', fetch, lookup: publicDns },
       signal,
     );
     expect(document).toMatchObject({
@@ -152,7 +154,7 @@ describe('url sources', () => {
     });
     const documents = await loadDocuments(
       urls('https://x.example/b.md', 'https://x.example/a.txt'),
-      { baseDir: '/', fetch },
+      { baseDir: '/', fetch, lookup: publicDns },
       signal,
     );
     expect(documents.map((d) => [d.sourceUri, d.title, d.accessTags])).toEqual([
@@ -169,7 +171,7 @@ describe('url sources', () => {
     });
     const documents = await loadDocuments(
       urls('https://x.example/h', 'https://x.example/n'),
-      { baseDir: '/', fetch },
+      { baseDir: '/', fetch, lookup: publicDns },
       signal,
     );
     expect(documents.map((d) => d.title)).toEqual(['Section', 'https://x.example/n']);
@@ -183,7 +185,7 @@ describe('url sources', () => {
     const error = await failure(
       loadDocuments(
         urls('https://x.example/big'),
-        { baseDir: '/', fetch, maxDocumentBytes: 1000 },
+        { baseDir: '/', fetch, lookup: publicDns, maxDocumentBytes: 1000 },
         signal,
       ),
     );
@@ -207,7 +209,7 @@ describe('url sources', () => {
     const error = await failure(
       loadDocuments(
         urls('https://x.example/s'),
-        { baseDir: '/', fetch, maxDocumentBytes: 1000 },
+        { baseDir: '/', fetch, lookup: publicDns, maxDocumentBytes: 1000 },
         signal,
       ),
     );
@@ -221,7 +223,7 @@ describe('url sources', () => {
       'https://x.example/404': page('gone', 'text/plain', 404),
       'https://x.example/pdf': page('%PDF', 'application/pdf'),
     });
-    const access = { baseDir: '/', fetch };
+    const access = { baseDir: '/', fetch, lookup: publicDns };
     expect(
       (await failure(loadDocuments(urls('https://x.example/404'), access, signal))).message,
     ).toBe('https://x.example/404: server answered 404');
@@ -237,7 +239,7 @@ describe('url sources', () => {
     const fetch = fetchReturning({ 'https://x.example/e': page(null as never, 'text/plain') });
     const [document] = await loadDocuments(
       urls('https://x.example/e'),
-      { baseDir: '/', fetch },
+      { baseDir: '/', fetch, lookup: publicDns },
       signal,
     );
     expect(document?.text).toBe('');

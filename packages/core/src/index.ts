@@ -65,7 +65,9 @@ export type {
 } from './store/types.js';
 
 export { DEFAULT_MAX_DOCUMENT_BYTES, loadDocuments } from './training/sources.js';
-export type { FetchLike, LoadedDocument, SourceAccess } from './training/sources.js';
+export type { LoadedDocument, SourceAccess } from './training/sources.js';
+export { MAX_REDIRECTS, isForbiddenAddress } from './training/url-fetch.js';
+export type { FetchLike, LookupLike } from './training/url-fetch.js';
 export { EMBEDDING_BATCH_SIZE, RETAINED_VERSIONS, train } from './training/train.js';
 export type { TrainOptions, TrainResult } from './training/train.js';
 export { activateVersion, evalGateFailure } from './training/activate.js';

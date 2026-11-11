@@ -68,14 +68,22 @@ Access tags match `^[a-z0-9][a-z0-9._:-]{0,63}$`. How a caller's tags are derive
 
 Each entry has a `type`:
 
-| `type`    | Fields                                                | Notes                                 |
-| --------- | ----------------------------------------------------- | ------------------------------------- |
-| `folder`  | `path`                                                | Directory of markdown files.          |
-| `urls`    | `urls`: http(s) URL[], at least one                   | Individual pages.                     |
-| `sitemap` | `url`: http(s) URL                                    | Every page listed in the sitemap.     |
-| `github`  | `repo` (`owner/name`), `path`, `ref` (default `main`) | Markdown files under `path` at `ref`. |
+| `type`    | Fields                                                | Notes                                                               |
+| --------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `folder`  | `path`                                                | Directory of `.md`, `.markdown` and `.txt` files, read recursively. |
+| `urls`    | `urls`: http(s) URL[], at least one                   | Individual pages. Training fetches https URLs only.                 |
+| `sitemap` | `url`: http(s) URL                                    | Every page listed in the sitemap.                                   |
+| `github`  | `repo` (`owner/name`), `path`, `ref` (default `main`) | Markdown files under `path` at `ref`.                               |
 
-The loaders that read sources are planned; only the schema is implemented.
+`ragctl train` reads `folder` and `urls` sources. `sitemap` and `github` sources pass validation but training rejects them; their loaders are planned.
+
+URL sources are fetched with these limits:
+
+- https only. An `http` URL passes validation but training refuses it.
+- Before each request, the host name is resolved and every address must be public. Loopback, private (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`, `fe80::/10`), unique-local (`fc00::/7`), CGNAT (`100.64/10`), `0.0.0.0/8`, `::1` and the IPv4-mapped IPv6 forms of these are refused.
+- At most 3 redirects, each target checked the same way.
+- 10 seconds per request, including reading the body, and 2 MiB per document.
+- The check and the connection resolve the name separately, so a DNS server that changes its answer between them (DNS rebinding) is not stopped. Only list hosts you trust.
 
 ### Chunking
 
