@@ -193,15 +193,23 @@ describe('loadInstanceConfig', () => {
   });
 
   it.each([
-    ['wildcard', ['*'], 'Wildcard'],
+    ['a bare wildcard', ['*'], 'Wildcards'],
+    ['a wildcard subdomain', ['https://*.example.com'], 'Wildcards'],
     ['an empty list', [], 'allowedOrigins'],
     ['a path', ['https://example.com/app'], 'no path'],
     ['a trailing slash', ['https://example.com/'], 'no path'],
-    ['a non-http scheme', ['ftp://example.com'], 'http(s) origin'],
+    ['a non-http scheme', ['ftp://example.com'], 'must use https'],
+    ['http on a public host', ['http://example.com'], 'must use https'],
+    ['http on a host that only starts with localhost', ['http://localhost.example.com'], 'https'],
     ['a non-URL', ['example.com'], 'not a URL origin'],
   ])('rejects allowedOrigins with %s', (_label, origins, message) => {
     const error = expectRejected(withField(['allowedOrigins'], origins), 'allowedOrigins');
     expect(error.message).toContain(message);
+  });
+
+  it('accepts http only for loopback origins', () => {
+    const origins = ['http://localhost:5173', 'http://127.0.0.1:3000', 'http://[::1]:8080'];
+    expect(load(withField(['allowedOrigins'], origins)).config.allowedOrigins).toEqual(origins);
   });
 
   it('rejects an unknown auth mode', () => {
@@ -253,12 +261,25 @@ describe('loadInstanceConfig', () => {
     }
   });
 
-  it('rejects role names that could collide with object prototype keys', () => {
+  it('rejects role names that start with an underscore', () => {
     expectRejected(
       withField(['auth'], { ...rbacAuth, roles: { _hidden: ['chat:use'] } }),
       '_hidden',
     );
   });
+
+  it.each([['__proto__'], ['constructor'], ['prototype']])(
+    'rejects the reserved role name %s instead of dropping it',
+    (name) => {
+      const yaml = stringify({ ...baseConfig(), auth: { ...rbacAuth, roles: {} } }).replace(
+        'roles: {}',
+        `roles:\n    staff: [chat:use]\n    ${name}: [instance:admin]`,
+      );
+      const error = rejection(() => loadInstanceConfig(yaml, {}));
+      expect(error.code).toBe('invalid_config');
+      expect(error.message).toContain(`auth.roles.${name}: Reserved role name`);
+    },
+  );
 
   it.each([
     ['requestsPerMinutePerIp', 0],

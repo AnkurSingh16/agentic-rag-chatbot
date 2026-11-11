@@ -10,9 +10,13 @@ export type AccessMode = (typeof ACCESS_MODES)[number];
 
 const INSTANCE_ID = /^[a-z][a-z0-9-]{1,39}$/;
 const ACCESS_TAG = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
-// Role names come from token claims and become object keys, so a leading
-// underscore is refused to keep names such as __proto__ out of the role map.
 const ROLE_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+// Role names are matched against token claims by object key. Zod silently
+// drops a "__proto__" key from records, so these names are checked on the raw
+// object and rejected with an error instead of disappearing or shadowing
+// inherited properties.
+const RESERVED_ROLE_NAMES: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 const POLICY_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 const GITHUB_REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 // Theme values are injected into client CSS, so only plain hex colours and
@@ -34,8 +38,8 @@ const permissionSchema = z.union([
 export type Permission = z.infer<typeof permissionSchema>;
 
 const originSchema = z.string().superRefine((value, ctx) => {
-  if (value === '*') {
-    ctx.addIssue({ code: 'custom', message: 'Wildcard origin "*" is not allowed' });
+  if (value.includes('*')) {
+    ctx.addIssue({ code: 'custom', message: `Wildcards are not allowed in origin "${value}"` });
     return;
   }
   let url: URL;
@@ -45,13 +49,33 @@ const originSchema = z.string().superRefine((value, ctx) => {
     ctx.addIssue({ code: 'custom', message: `"${value}" is not a URL origin` });
     return;
   }
-  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.origin !== value) {
+  const loopbackHttp = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+  if (!(url.protocol === 'https:' || loopbackHttp)) {
     ctx.addIssue({
       code: 'custom',
-      message: `"${value}" must be an http(s) origin with no path or trailing slash`,
+      message: `"${value}" must use https; http is allowed only for localhost, 127.0.0.1 and [::1]`,
+    });
+    return;
+  }
+  if (url.origin !== value) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `"${value}" must be an origin with no path or trailing slash`,
     });
   }
 });
+
+const roleMapSchema = z
+  .unknown()
+  .superRefine((value, ctx) => {
+    if (typeof value !== 'object' || value === null) return;
+    for (const key of Object.keys(value)) {
+      if (RESERVED_ROLE_NAMES.has(key)) {
+        ctx.addIssue({ code: 'custom', path: [key], message: `Reserved role name "${key}"` });
+      }
+    }
+  })
+  .pipe(z.record(z.string().regex(ROLE_NAME, 'Invalid role name'), z.array(permissionSchema)));
 
 const personaSchema = z.strictObject({
   systemPrompt: nonEmpty,
@@ -87,7 +111,7 @@ const authSchema = z.discriminatedUnion('mode', [
     issuer: issuerUrl,
     audience: nonEmpty,
     roleClaim: nonEmpty,
-    roles: z.record(z.string().regex(ROLE_NAME, 'Invalid role name'), z.array(permissionSchema)),
+    roles: roleMapSchema,
   }),
 ]);
 
