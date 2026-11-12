@@ -7,8 +7,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: rag
     ports:
+      # 5433 by default so it can run next to another local PostgreSQL on 5432.
       # Loopback only: the admin account must not be reachable from the network.
-      - '127.0.0.1:5432:5432'
+      - '127.0.0.1:${RAG_POSTGRES_PORT:-5433}:5432'
     volumes:
       - rag-postgres:/var/lib/postgresql/data
     healthcheck:

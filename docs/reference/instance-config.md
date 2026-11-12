@@ -132,7 +132,7 @@ auth:
   mode: public
 allowedOrigins:
   - https://ankursingh16.github.io
-  - http://localhost:5173
+  - http://localhost:5180
 limits:
   maxOutputTokens: 512
   maxTurnsPerSession: 20

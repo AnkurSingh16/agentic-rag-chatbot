@@ -78,7 +78,7 @@ if (active === undefined || active.embeddingProvider !== expectedProvider) {
 
 process.stdout.write(
   `\nStarting the API (LLM_PROVIDER=${env.LLM_PROVIDER}, EMBEDDING_PROVIDER=${env.EMBEDDING_PROVIDER}) and the web demo.\n` +
-    'Open http://127.0.0.1:5173 and press Ctrl+C to stop.\n\n',
+    'Open http://127.0.0.1:5180 and press Ctrl+C to stop.\n\n',
 );
 const children = [
   spawn(process.execPath, ['apps/server/dist/main.js'], { stdio: 'inherit', env }),

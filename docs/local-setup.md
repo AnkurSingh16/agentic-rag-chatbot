@@ -6,9 +6,19 @@ This page gets you from a fresh clone to a chat widget answering questions about
 
 ## Prerequisites
 
-- Node 24 and npm (`.nvmrc` pins the version).
+- Node 24 and npm (`.nvmrc` pins the version). On Linux, run `export npm_config_onnxruntime_node_install=skip` before `npm install` so the embedding runtime does not download CUDA libraries; macOS needs nothing.
 - Docker with Docker Compose, for PostgreSQL 17 with pgvector. Any PostgreSQL 16 or 17 server with the `vector` extension also works: point the database URLs at it and set `DEV_SKIP_DOCKER=1`.
 - Internet access on the first run, to download the local embedding model (about 90 MB) from Hugging Face. Use [offline mode](#offline-mode) if you have none.
+
+## Ports
+
+The chatbot uses its own local ports so it can run next to another project, such as Aegis AI, which uses 5432, 4000 and 5173:
+
+| Service    | Port | Change with                                                          |
+| ---------- | ---- | -------------------------------------------------------------------- |
+| PostgreSQL | 5433 | `RAG_POSTGRES_PORT`, plus the port in the three database URLs        |
+| Chat API   | 4100 | `PORT`, plus `VITE_CHAT_API_URL` for the web demo                    |
+| Web demo   | 5180 | `apps/web-demo/vite.config.ts`, plus the instance's `allowedOrigins` |
 
 ## First run in mock mode
 
@@ -24,9 +34,9 @@ Fill in the database settings in `.env`:
 | `POSTGRES_PASSWORD`    | Any password for the local `rag_admin` superuser that Docker Compose creates.     |
 | `RAG_RUNTIME_PASSWORD` | 16 to 256 characters. The migration runner creates `rag_runtime` with it.         |
 | `RAG_INGEST_PASSWORD`  | 16 to 256 characters, different from the runtime password. Used for `rag_ingest`. |
-| `DATABASE_ADMIN_URL`   | `postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5432/rag`                     |
-| `DATABASE_URL`         | `postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5432/rag`                |
-| `DATABASE_INGEST_URL`  | `postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5432/rag`                  |
+| `DATABASE_ADMIN_URL`   | `postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5433/rag`                     |
+| `DATABASE_URL`         | `postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5433/rag`                |
+| `DATABASE_INGEST_URL`  | `postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5433/rag`                  |
 
 Leave `ANTHROPIC_API_KEY` empty. Every other variable has a working default; `.env.example` describes each one. `.env` is git-ignored.
 
@@ -41,7 +51,7 @@ npm run dev
 1. starts PostgreSQL with `docker compose up -d --wait` (skipped with `DEV_SKIP_DOCKER=1`);
 2. builds every workspace and applies the migrations;
 3. if the `demo` instance has no active index version, or its active version was built with a different embedding provider, runs `ragctl train demo`, `ragctl eval demo` and `ragctl activate demo`;
-4. starts the API on `http://127.0.0.1:4000` and the web demo on `http://127.0.0.1:5173`, with `LLM_PROVIDER=mock`.
+4. starts the API on `http://127.0.0.1:4100` and the web demo on `http://127.0.0.1:5180`, with `LLM_PROVIDER=mock`.
 
 Press Ctrl+C to stop both.
 
@@ -59,15 +69,15 @@ Activated <id> for demo. Previous: none.
 
 The figures above were measured with `EMBEDDING_PROVIDER=mock`; the local model gives different numbers. Later runs print `Serving demo version <id>` and skip training.
 
-Open `http://127.0.0.1:5173`, click **Chat** and ask "How long does it take for changes to sync?". In mock mode the answer is built from the first sentence of each of the top two retrieved chunks, with a citation after each paragraph and the sources listed below it. Greetings such as "hi" get a fixed reply without retrieval. The mock model never calls a network service.
+Open `http://127.0.0.1:5180`, click **Chat** and ask "How long does it take for changes to sync?". In mock mode the answer is built from the first sentence of each of the top two retrieved chunks, with a citation after each paragraph and the sources listed below it. Greetings such as "hi" get a fixed reply without retrieval. The mock model never calls a network service.
 
 `demo` is a public instance with eight synthetic help articles for "Lumen Notes", a note-taking app that does not exist.
 
 The API can also be called directly:
 
 ```bash
-TOKEN=$(curl -s -X POST http://127.0.0.1:4000/v1/instances/demo/session | node -p 'JSON.parse(require("fs").readFileSync(0)).token')
-curl -N -X POST http://127.0.0.1:4000/v1/instances/demo/chat \
+TOKEN=$(curl -s -X POST http://127.0.0.1:4100/v1/instances/demo/session | node -p 'JSON.parse(require("fs").readFileSync(0)).token')
+curl -N -X POST http://127.0.0.1:4100/v1/instances/demo/chat \
   -H 'content-type: application/json' -H "x-session-token: $TOKEN" \
   -d '{"message":"How long does it take for changes to sync?"}'
 ```
@@ -140,9 +150,9 @@ The integration tests create roles and rows in the database they are given, so u
 
 ```bash
 docker compose exec postgres createdb -U rag_admin rag_test
-export TEST_DATABASE_ADMIN_URL=postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5432/rag_test
-export TEST_DATABASE_URL=postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5432/rag_test
-export TEST_DATABASE_INGEST_URL=postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5432/rag_test
+export TEST_DATABASE_ADMIN_URL=postgres://rag_admin:<POSTGRES_PASSWORD>@127.0.0.1:5433/rag_test
+export TEST_DATABASE_URL=postgres://rag_runtime:<RAG_RUNTIME_PASSWORD>@127.0.0.1:5433/rag_test
+export TEST_DATABASE_INGEST_URL=postgres://rag_ingest:<RAG_INGEST_PASSWORD>@127.0.0.1:5433/rag_test
 npm run build && npm run test:integration
 ```
 
