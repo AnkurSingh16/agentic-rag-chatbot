@@ -47,7 +47,7 @@ npm install
 npm run check   # lint, format check, typecheck, tests with coverage, build
 ```
 
-To run the demo locally, copy `.env.example` to `.env`, fill in the database settings and run `npm run dev` (mock mode, no API key) or `npm run dev:live` (Anthropic API key in `.env`). See [local setup](docs/local-setup.md).
+To run the demo locally, copy `.env.example` to `.env`, fill in the database settings and run `npm run dev` (mock mode, no API key), `npm run dev:ollama` (free local model through Ollama) or `npm run dev:live` (Anthropic API key in `.env`). See [local setup](docs/local-setup.md).
 
 See [docs/development](docs/development) for conventions and the PR workflow, and [docs/adr](docs/adr) for design decisions.
 
