@@ -59,7 +59,9 @@ export function ollamaBaseUrl(value: string, allowRemote: boolean): string {
         'Set OLLAMA_ALLOW_REMOTE=true to allow it.',
     );
   }
-  return value.replace(/\/+$/, '');
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 /** The `fetch` the provider calls; tests replace it. */
