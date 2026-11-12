@@ -77,13 +77,42 @@ const roleMapSchema = z
   })
   .pipe(z.record(z.string().regex(ROLE_NAME, 'Invalid role name'), z.array(permissionSchema)));
 
+/** The house style used when an instance sets no `persona.styleGuide`. */
+export const DEFAULT_STYLE_GUIDE =
+  'Be friendly and plain-spoken. Use plain English, short paragraphs and the first person ("I" for the assistant).';
+
+const httpsUrl = z.url({ protocol: /^https$/ });
+
+const exampleSchema = z.strictObject({
+  question: nonEmpty.max(300),
+  answer: nonEmpty.max(800),
+});
+
+// The fallback is what the visitor sees when the documents do not answer, a question is out of
+// scope or an answer is blocked (ADR 0005, docs/reference/instance-config.md).
+const fallbackSchema = z.strictObject({
+  message: nonEmpty.max(1000),
+  suggestedTopics: z.array(nonEmpty.max(200)).max(3).default([]),
+  handoff: z.strictObject({ url: httpsUrl, label: nonEmpty.max(60) }).optional(),
+});
+
 // Persona text goes into every model call; these caps keep the instructions within the
 // per-call input budget of the agent graph (ADR 0005).
 const personaSchema = z.strictObject({
   systemPrompt: nonEmpty.max(4000),
   answerStyle: nonEmpty.max(1000),
-  outOfScope: nonEmpty.max(1000),
+  styleGuide: nonEmpty.max(1000).optional(),
+  examples: z.array(exampleSchema).max(3).default([]),
+  fallback: fallbackSchema,
   forbiddenTopics: z.array(nonEmpty.max(200)).max(50).default([]),
+});
+
+const evaluationSchema = z.strictObject({
+  /**
+   * Share of unanswerable eval questions that must retrieve nothing above the minimum score for
+   * `ragctl eval` to pass. The default requires all of them.
+   */
+  minUnanswerableEmptyRate: z.number().min(0).max(1).default(1),
 });
 
 // Both optional: the server falls back to LLM_MODEL, then to the platform default (ADR 0008).
@@ -210,6 +239,7 @@ export const instanceConfigSchema = z.strictObject({
   sources: z.array(sourceSchema).min(1),
   chunking: chunkingSchema.prefault({}),
   evalSet: nonEmpty.optional(),
+  evaluation: evaluationSchema.prefault({}),
   requiredPolicies: z.array(z.string().regex(POLICY_NAME, 'Invalid policy name')).optional(),
 });
 
@@ -223,3 +253,5 @@ export type EmbeddingProviderName = EmbeddingConfig['provider'];
 export type LimitsConfig = InstanceConfig['limits'];
 export type SourceConfig = InstanceConfig['sources'][number];
 export type ChunkingConfig = z.infer<typeof chunkingSchema>;
+export type PersonaConfig = InstanceConfig['persona'];
+export type FallbackConfig = PersonaConfig['fallback'];

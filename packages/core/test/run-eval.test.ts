@@ -41,6 +41,7 @@ describe('runRetrievalEval', () => {
       evalSet,
       retrieval: retrieving([['a.md', 'a.md', 'x.md'], ['b.md'], [], ['x.md']]),
       minRecall: 0.5,
+      minUnanswerableEmptyRate: 0.5,
     });
     expect(result).toMatchObject({
       passed: true,
@@ -57,6 +58,36 @@ describe('runRetrievalEval', () => {
       ],
     );
     expect(result.questions[0]?.retrievedSources).toEqual(['a.md', 'x.md']);
+  });
+
+  it('fails when an unanswerable question retrieves anything, unless the instance lowers the rate', async () => {
+    const evalSet = parseEvalSet(`questions:
+  - { id: a, question: A?, answer: A., sources: [a.md] }
+  - { id: c, question: C?, answerable: false }
+  - { id: d, question: D?, answerable: false }
+`);
+    const retrievedForUnanswerable = retrieving([['a.md'], ['x.md'], []]);
+    const strict = await runRetrievalEval({
+      ...options,
+      evalSet,
+      retrieval: retrievedForUnanswerable,
+      minRecall: 0.5,
+    });
+    expect(strict).toMatchObject({
+      passed: false,
+      unanswerableEmpty: 1,
+      unanswerable: 2,
+      minUnanswerableEmptyRate: 1,
+    });
+
+    const lenient = await runRetrievalEval({
+      ...options,
+      evalSet,
+      retrieval: retrieving([['a.md'], ['x.md'], []]),
+      minRecall: 0.5,
+      minUnanswerableEmptyRate: 0.5,
+    });
+    expect(lenient).toMatchObject({ passed: true, minUnanswerableEmptyRate: 0.5 });
   });
 
   it('fails an eval set with no scored questions', async () => {

@@ -41,7 +41,7 @@ export type ChatStreamEvent =
   | { type: 'tool_use'; name: string; input: unknown }
   | { type: 'done'; usage: TokenUsage };
 
-export type ChatProviderName = 'mock' | 'anthropic';
+export type ChatProviderName = 'mock' | 'anthropic' | 'ollama';
 
 /** A chat model that streams its answer. Implementations wrap provider errors in ChatbotError. */
 export interface ChatModel {

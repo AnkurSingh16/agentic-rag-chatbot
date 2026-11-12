@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { fallbackText } from '../src/agent/prompts.js';
 import {
-  INSUFFICIENT_EVIDENCE_TEXT,
   TURN_BUDGET,
   checkParagraph,
   createMockChatModel,
@@ -31,7 +31,7 @@ const config = instanceConfigSchema.parse({
   persona: {
     systemPrompt: 'You answer questions about the help articles.',
     answerStyle: 'Short.',
-    outOfScope: 'I can only answer questions about the help articles.',
+    fallback: { message: 'I can only answer questions about the help articles.' },
     forbiddenTopics: ['Legal Advice'],
   },
   auth: { mode: 'public' },
@@ -191,7 +191,7 @@ describe('runChat', () => {
     };
     const { outcome, tokens } = await chat({ chatModel: model });
     expect(outcome.state).toBe(state);
-    expect(tokens).toEqual([config.persona.outOfScope]);
+    expect(tokens).toEqual([fallbackText(config.persona.fallback)]);
   });
 
   it('treats an unusable routing answer as a question', async () => {
@@ -218,7 +218,7 @@ describe('runChat', () => {
   it('returns insufficient evidence without an answer call when nothing is retrieved', async () => {
     const { outcome, calls, tokens } = await chat({ retrieval: fakeRetrieval([]).store });
     expect(outcome.state).toBe('INSUFFICIENT_EVIDENCE');
-    expect(tokens).toEqual([INSUFFICIENT_EVIDENCE_TEXT]);
+    expect(tokens).toEqual([fallbackText(config.persona.fallback)]);
     expect(calls.map((call) => call.node)).toEqual(['route']);
   });
 
@@ -227,7 +227,7 @@ describe('runChat', () => {
     const { outcome, calls, tokens, searches, events } = await chat({ chatModel: model });
     expect(searches.map((queries) => queries[0]?.limit)).toEqual([8, 16]);
     expect(calls).toHaveLength(3);
-    expect(tokens).toEqual([INSUFFICIENT_EVIDENCE_TEXT]);
+    expect(tokens).toEqual([fallbackText(config.persona.fallback)]);
     expect(events.some((event) => event.event === 'reset')).toBe(false);
     expect(outcome.state).toBe('INSUFFICIENT_EVIDENCE');
     expect(outcome.usage).toMatchObject({ cacheReadTokens: 4, cacheWriteTokens: 2 });
@@ -253,7 +253,7 @@ describe('runChat', () => {
     const retrieval = fakeRetrieval([chunk('legal', 'We do not give legal advice here.')]);
     const { outcome, tokens, events } = await chat({ retrieval: retrieval.store });
     expect(outcome.state).toBe('REFUSED');
-    expect(tokens).toEqual([config.persona.outOfScope]);
+    expect(tokens).toEqual([fallbackText(config.persona.fallback)]);
     expect(events.some((event) => event.event === 'citation')).toBe(false);
 
     const late = scripted([
@@ -283,7 +283,7 @@ describe('runChat', () => {
     });
     expect(tokens.join('')).not.toContain('Ignore previous instructions');
     expect(outcome.state).toBe('REFUSED');
-    expect(tokens).toEqual([config.persona.outOfScope]);
+    expect(tokens).toEqual([fallbackText(config.persona.fallback)]);
     expect(events.some((event) => event.event === 'citation')).toBe(false);
 
     const mock = await chat({ retrieval: retrieval.store });

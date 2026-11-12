@@ -18,7 +18,8 @@ displayName: ${id}
 persona:
   systemPrompt: Answer.
   answerStyle: Short.
-  outOfScope: No.
+  fallback:
+    message: No.
 ${auth}
 allowedOrigins:
   - http://localhost:5173
