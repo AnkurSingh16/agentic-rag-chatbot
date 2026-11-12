@@ -12,13 +12,15 @@ This page gets you from a fresh clone to a chat widget answering questions about
 
 ## Ports
 
+If a port is taken, `npm run dev` and `npm run dev:ollama` stop before starting and name the settings to change. Put `PORT=4101` and `WEB_DEMO_PORT=5181`, for example, in `.env`, and add `http://127.0.0.1:5181` to `allowedOrigins` in `instances/demo/instance.yaml`.
+
 The chatbot uses its own local ports so it can run next to another project, such as Aegis AI, which uses 5432, 4000 and 5173:
 
-| Service    | Port | Change with                                                          |
-| ---------- | ---- | -------------------------------------------------------------------- |
-| PostgreSQL | 5433 | `RAG_POSTGRES_PORT`, plus the port in the three database URLs        |
-| Chat API   | 4100 | `PORT`, plus `VITE_CHAT_API_URL` for the web demo                    |
-| Web demo   | 5180 | `apps/web-demo/vite.config.ts`, plus the instance's `allowedOrigins` |
+| Service    | Port | Change with                                                   |
+| ---------- | ---- | ------------------------------------------------------------- |
+| PostgreSQL | 5433 | `RAG_POSTGRES_PORT`, plus the port in the three database URLs |
+| Chat API   | 4100 | `PORT` (`VITE_CHAT_API_URL` follows it unless set)            |
+| Web demo   | 5180 | `WEB_DEMO_PORT`, plus the instance's `allowedOrigins`         |
 
 ## First run in mock mode
 

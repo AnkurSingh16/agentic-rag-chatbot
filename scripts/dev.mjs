@@ -3,6 +3,7 @@
 // `node --env-file-if-exists=.env`.
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { fail, newestVersion, requireEnv, step, trainEvalActivate } from './lib.mjs';
@@ -22,6 +23,43 @@ function keyFromDotEnv() {
 }
 
 const apiKey = live ? keyFromDotEnv() : undefined;
+
+// The API and the web demo default to 4100 and 5180. Either can be moved with PORT and WEB_DEMO_PORT
+// in .env, for example when another project already uses those ports.
+const apiPort = process.env.PORT?.trim() || '4100';
+const webPort = process.env.WEB_DEMO_PORT?.trim() || '5180';
+
+function portFree(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => {
+      probe.close(() => resolve(true));
+    });
+    probe.listen(Number(port), '127.0.0.1');
+  });
+}
+
+for (const [name, port] of [
+  ['PORT (API)', apiPort],
+  ['WEB_DEMO_PORT (web demo)', webPort],
+]) {
+  if (!(await portFree(port))) {
+    fail(
+      `${name} ${port} is already in use. Pick free ports in .env, for example:\n` +
+        '  PORT=4101\n  WEB_DEMO_PORT=5181\n' +
+        'Then add the web demo origin to allowedOrigins in instances/demo/instance.yaml, for example\n' +
+        '  - http://127.0.0.1:5181',
+    );
+  }
+}
+const demoConfig = readFileSync('instances/demo/instance.yaml', 'utf8');
+if (!demoConfig.includes(`http://127.0.0.1:${webPort}`)) {
+  process.stdout.write(
+    `\nWarning: instances/demo/instance.yaml does not allow http://127.0.0.1:${webPort}. ` +
+      'The web demo will get 403 from the API until you add that origin to allowedOrigins.\n',
+  );
+}
 if (live && apiKey === undefined) {
   fail(
     "npm run dev:live needs ANTHROPIC_API_KEY in this project's .env file. Create a key in the " +
@@ -41,6 +79,9 @@ const env = {
   ...process.env,
   LLM_PROVIDER: live ? 'anthropic' : ollama ? 'ollama' : 'mock',
   EMBEDDING_PROVIDER: process.env.EMBEDDING_PROVIDER || 'local',
+  PORT: apiPort,
+  WEB_DEMO_PORT: webPort,
+  VITE_CHAT_API_URL: process.env.VITE_CHAT_API_URL || `http://127.0.0.1:${apiPort}`,
 };
 if (live) env.ANTHROPIC_API_KEY = apiKey;
 else delete env.ANTHROPIC_API_KEY;
@@ -115,7 +156,7 @@ if (active === undefined || active.embeddingProvider !== expectedProvider) {
 
 process.stdout.write(
   `\nStarting the API (LLM_PROVIDER=${env.LLM_PROVIDER}, EMBEDDING_PROVIDER=${env.EMBEDDING_PROVIDER}${ollama ? `, OLLAMA_MODEL=${env.OLLAMA_MODEL}` : ''}) and the web demo.\n` +
-    'Open http://127.0.0.1:5180 and press Ctrl+C to stop.\n\n',
+    `Open http://127.0.0.1:${webPort} and press Ctrl+C to stop.\n\n`,
 );
 const children = [
   spawn(process.execPath, ['apps/server/dist/main.js'], { stdio: 'inherit', env }),
