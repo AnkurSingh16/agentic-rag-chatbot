@@ -17,7 +17,7 @@ function baseConfig(): Raw {
     persona: {
       systemPrompt: 'You answer questions about the published services.',
       answerStyle: 'Short and factual.',
-      outOfScope: 'I can only answer questions about the published services.',
+      fallback: { message: 'I can only answer questions about the published services.' },
     },
     models: { chat: 'chat-model' },
     embedding: { provider: 'mock', model: 'mock-hash-v1' },
@@ -191,7 +191,7 @@ describe('loadInstanceConfig', () => {
   it.each([
     [['displayName'], '   '],
     [['persona', 'systemPrompt'], undefined],
-    [['persona', 'outOfScope'], ''],
+    [['persona', 'fallback', 'message'], ''],
     [['models', 'chat'], ''],
     [['embedding', 'model'], ''],
   ])('rejects a missing or blank %j', (path, value) => {

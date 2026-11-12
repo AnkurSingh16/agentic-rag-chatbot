@@ -12,13 +12,15 @@ This page gets you from a fresh clone to a chat widget answering questions about
 
 ## Ports
 
+If a port is taken, `npm run dev` and `npm run dev:ollama` stop before starting and name the settings to change. Put `PORT=4101` and `WEB_DEMO_PORT=5181`, for example, in `.env`, and add `http://127.0.0.1:5181` to `allowedOrigins` in `instances/demo/instance.yaml`.
+
 The chatbot uses its own local ports so it can run next to another project, such as Aegis AI, which uses 5432, 4000 and 5173:
 
-| Service    | Port | Change with                                                          |
-| ---------- | ---- | -------------------------------------------------------------------- |
-| PostgreSQL | 5433 | `RAG_POSTGRES_PORT`, plus the port in the three database URLs        |
-| Chat API   | 4100 | `PORT`, plus `VITE_CHAT_API_URL` for the web demo                    |
-| Web demo   | 5180 | `apps/web-demo/vite.config.ts`, plus the instance's `allowedOrigins` |
+| Service    | Port | Change with                                                   |
+| ---------- | ---- | ------------------------------------------------------------- |
+| PostgreSQL | 5433 | `RAG_POSTGRES_PORT`, plus the port in the three database URLs |
+| Chat API   | 4100 | `PORT` (`VITE_CHAT_API_URL` follows it unless set)            |
+| Web demo   | 5180 | `WEB_DEMO_PORT`, plus the instance's `allowedOrigins`         |
 
 ## First run in mock mode
 
@@ -124,6 +126,45 @@ A turn makes up to three calls: `route` (classify the question and write search 
 
 The limits per instance (`limits` in `instance.yaml`, see [instance.yaml reference](reference/instance-config.md)) default to 512 output tokens per call, 20 turns per session, 20 requests per minute per IP, 100 requests per day per IP and 500 per day per instance. The per-minute limit is kept in each server process's memory; the daily limits are kept in PostgreSQL.
 
+## Free local model (Ollama)
+
+Ollama runs an open model on this Mac and costs nothing per request. I use it for development and demos. Public instances stay on Anthropic unless a self-hosted model is approved later ([ADR 0008](adr/0008-model-access-and-cost-controls.md)).
+
+1. Install Ollama and start its background service:
+
+   ```bash
+   brew install ollama
+   brew services start ollama
+   ```
+
+2. Pull the model. The default depends on memory. Check yours with `sysctl hw.memsize`: 16 GB (17179869184 bytes) or more uses `qwen2.5:7b`; less uses `llama3.2:3b`.
+
+   ```bash
+   ollama pull qwen2.5:7b
+   ```
+
+   For a machine with less memory, pull `llama3.2:3b` instead.
+
+3. Leave `OLLAMA_MODEL` empty in `.env` to use the default for your memory, or set it to the model you pulled. `OLLAMA_BASE_URL` defaults to `http://127.0.0.1:11434`.
+
+4. Run:
+
+   ```bash
+   npm run dev:ollama
+   ```
+
+The script checks that Ollama answers at `OLLAMA_BASE_URL` and that the model is pulled. If either is missing it prints the command to run and stops before starting the API. Then it starts the API with `LLM_PROVIDER=ollama`, so no Anthropic key is read or used. Embeddings still run locally with all-MiniLM-L6-v2, so `npm run dev:ollama` trains and evaluates the demo the same way `npm run dev` does.
+
+Measured on this Mac (16 GB, qwen2.5:7b, Q4_K_M quantisation): {MEASURED}
+
+Things to know:
+
+- Only a loopback `OLLAMA_BASE_URL` is accepted unless `OLLAMA_ALLOW_REMOTE=true`, so prompts and documents stay on the machine by default.
+- Small models are less reliable at tool calls. When the model does not call the routing tool, or calls it with invalid input, the question goes to retrieval as a knowledge question. Answers still come only from the documents, but routing is less precise than with Claude.
+- Ollama has no forced tool choice, so the `route` tool is offered but not required.
+- A response cut off by the output token limit is not flagged: Ollama reports it in `done_reason`, and the client does not read that field yet. Verification still rejects a paragraph that lacks a citation, but a truncated final sentence can reach the reader.
+- Answers from a small model cite less reliably. Verification still rejects any paragraph without a valid citation, so a weak answer ends as the instance's fallback rather than as an uncited claim.
+
 ## Ingesting documents for an instance
 
 To train an instance from a folder instead of its configured sources, evaluate the new version and activate it if the eval passes:
@@ -170,6 +211,10 @@ Roles are shared by every database in the server, so the test URLs must use the 
 | Server refuses to start: `does not implement until phase 5`    | An instance uses `authenticated` or `rbac` mode, which the server does not serve yet. Set `INSTANCE_ID` to a public instance or move the other instance out of `INSTANCES_DIR`.                                                         |
 | Widget shows "Too many messages" or "daily message limit"      | A limit in `instance.yaml` was reached (`429` with `rate_limited` or `budget_exceeded`). Daily counters reset at 00:00 UTC.                                                                                                             |
 | `403` from the API in the browser                              | The page's origin is not in the instance's `allowedOrigins`.                                                                                                                                                                            |
+| `npm run dev:ollama` says Ollama is not reachable              | Start it with `brew services start ollama` or run `ollama serve`, then run the command again. Check `OLLAMA_BASE_URL` if you changed it.                                                                                                |
+| `npm run dev:ollama` says the model is not pulled              | Run the `ollama pull <model>` command it prints. `ollama list` shows what is installed.                                                                                                                                                 |
+| `OLLAMA_BASE_URL points to ... not a loopback address`         | Use a loopback address, or set `OLLAMA_ALLOW_REMOTE=true` if the Ollama server is on another machine you trust.                                                                                                                         |
+| Ollama answers are slow on the first question                  | The first request loads the model into memory, which takes several seconds. Later requests reuse it until Ollama unloads it.                                                                                                            |
 | `npm run dev:live` says `ANTHROPIC_API_KEY` is missing         | The key must be in this project's `.env`, not in the shell.                                                                                                                                                                             |
 | `401` with `invalid_config` in the server log during live mode | Anthropic rejected the key. Check `ANTHROPIC_API_KEY` in `.env`.                                                                                                                                                                        |
 | Sessions stop working after a restart                          | Without `SESSION_SECRET` the server signs sessions with a random secret per start (allowed only in mock mode on a loopback host). The web demo gets a new session automatically; set `SESSION_SECRET` to keep sessions across restarts. |

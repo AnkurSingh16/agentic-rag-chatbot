@@ -107,12 +107,16 @@ describe('hybrid retrieval', () => {
   });
 
   it('ranks the matching document first, by keyword and by meaning', async () => {
-    const results = await search('What happens if I edit the same note on two devices?');
+    const results = await search('note edited on two devices offline conflict');
     expect(results[0]?.sourceUri).toBe('data/sync.md');
     expect(results.length).toBeLessThanOrEqual(8);
     const scores = results.map((result) => result.score);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
-    expect((await search('conflict'))[0]?.sourceUri).toBe('data/sync.md');
+    expect((await search('edited two devices conflict'))[0]?.sourceUri).toBe('data/sync.md');
+  });
+
+  it('drops a paraphrase that only the vector search finds (minFusedScore, ADR 0006)', async () => {
+    expect(await search('How long does it take for changes to sync?')).toEqual([]);
   });
 
   it('returns nothing for unrelated text, other tags or another instance', async () => {
@@ -147,7 +151,7 @@ describe('chat API against PostgreSQL', () => {
       method: 'POST',
       url: `/v1/instances/${instanceId}/chat`,
       headers: { 'x-session-token': token },
-      payload: { message: 'How long does it take for changes to sync?' },
+      payload: { message: 'changes sync within thirty seconds' },
     });
     const events = response.body
       .split('\n\n')

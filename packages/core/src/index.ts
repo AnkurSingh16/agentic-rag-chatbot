@@ -66,6 +66,15 @@ export { formatContext, parseContext } from './llm/context.js';
 export type { ContextDocument } from './llm/context.js';
 export { MOCK_INSUFFICIENT_EVIDENCE, createMockChatModel } from './llm/mock.js';
 export { createAnthropicChatModel } from './llm/anthropic.js';
+export {
+  OLLAMA_DEFAULT_BASE_URL,
+  createOllamaChatModel,
+  isLoopbackHost,
+  ollamaBaseUrl,
+  ollamaModelName,
+  recommendedOllamaModel,
+} from './llm/ollama.js';
+export type { OllamaChatModelOptions, OllamaFetch } from './llm/ollama.js';
 export type { AnthropicChatModelOptions, AnthropicClientLike } from './llm/anthropic.js';
 export { DEFAULT_CHAT_MODEL, createChatModel, resolveChatModels } from './llm/factory.js';
 
@@ -78,14 +87,7 @@ export type {
   SearchQuery,
 } from './retrieval/types.js';
 
-export {
-  INSUFFICIENT_EVIDENCE_TEXT,
-  TURN_BUDGET,
-  fitContext,
-  mergeResults,
-  runChat,
-  trimHistory,
-} from './agent/run-chat.js';
+export { TURN_BUDGET, fitContext, mergeResults, runChat, trimHistory } from './agent/run-chat.js';
 export type { ChatOutcome, ModelCallRecord, RunChatOptions } from './agent/run-chat.js';
 export {
   CITATION,

@@ -93,6 +93,19 @@
   color: #cf222e;
 }
 
+.chat-footnote-ref {
+  font-size: 0.7em;
+  line-height: 0;
+  margin-left: 0.1em;
+}
+
+.chat-footnotes {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+  color: #59636e;
+  font-size: 0.8rem;
+}
+
 .chat-citations {
   margin: 0.25rem 0 0;
   padding-left: 1rem;

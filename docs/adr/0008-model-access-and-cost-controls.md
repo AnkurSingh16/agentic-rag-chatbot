@@ -21,6 +21,7 @@ ADR 0006 chose Voyage for embeddings, which is a second paid API.
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | `mock` (default) | Local development, unit and integration tests, CI. Deterministic responses, including tool-call flows, built from the retrieved context. | None                |
 | `anthropic`      | Live mode. Official `@anthropic-ai/sdk`, with `ANTHROPIC_API_KEY` read from the application's `.env` only.                               | Anthropic API usage |
+| `ollama`         | Free local model for development and demos, through a local Ollama server (see the amendment below).                                     | None                |
 
 The default model is `claude-haiku-5-5`, set by `LLM_MODEL`. An instance can override it in `models.chat`, for example with `claude-sonnet-5-5`.
 
@@ -48,3 +49,16 @@ The local model is downloaded from Hugging Face on first use and cached on disk.
 - The first local-embedding run downloads the model, so it needs internet access once.
 - Indexes built at 1024 dimensions must be rebuilt.
 - Retrieval quality with a small local model is measured by the eval harness rather than assumed.
+
+## Amendment: Ollama as the free development provider
+
+I added `ollama` as a third chat provider, selected by `LLM_PROVIDER=ollama`. It calls the local Ollama HTTP API (`POST /api/chat`, streamed as newline-delimited JSON) with `fetch`, so it adds no dependency. Its usage comes from Ollama's own counters, and it reports no cache reads or writes.
+
+- **Use.** Ollama is the free provider for development and demos. Anthropic stays the provider for public instances unless a self-hosted model is approved later. A visitor's question never goes to Ollama on a public deployment unless someone chooses that.
+- **Model.** `OLLAMA_MODEL` names the model. When it is unset I use `qwen2.5:7b` on machines with 16 GB of memory or more and `llama3.2:3b` on machines with less. Instance `models.chat` values, which name Claude models, are ignored with this provider.
+- **Address.** `OLLAMA_BASE_URL` must be `http` or `https` and point to a loopback address unless `OLLAMA_ALLOW_REMOTE=true`. This keeps prompts and documents on the machine by default.
+- **Failures.** An unreachable server, a model that is not pulled, a server error and an error in the stream each map to a `ChatbotError` that says what to do. An idle stream is abandoned after two minutes.
+- **Tool calls.** Ollama has no forced tool choice, and small models sometimes skip the routing tool. A missing or invalid route call is treated as a knowledge question with the user's message as the only query, so retrieval and verification still decide the answer (ADR 0005).
+- **Tests.** CI stays mock-only. The Ollama provider is tested with a mocked `fetch`, and `npm run dev:ollama` checks the live server and the model before the API starts.
+
+Anthropic remains the only provider that serves public traffic, and the mock provider remains the default. The rules in this ADR about keys, limits and usage logging apply to Ollama unchanged, except that its calls cost nothing.

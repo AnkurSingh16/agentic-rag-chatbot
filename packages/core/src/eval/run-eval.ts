@@ -23,6 +23,8 @@ export interface RetrievalEvalResult {
   /** Unanswerable questions for which retrieval correctly returned nothing. */
   unanswerableEmpty: number;
   unanswerable: number;
+  /** The share of unanswerable questions that must retrieve nothing for the eval to pass. */
+  minUnanswerableEmptyRate: number;
   questions: EvalQuestionResult[];
 }
 
@@ -34,19 +36,23 @@ export interface RetrievalEvalOptions {
   retrieval: RetrievalStore;
   signal: AbortSignal;
   minRecall?: number;
+  /** See `evaluation.minUnanswerableEmptyRate` in instance.yaml. Defaults to requiring all. */
+  minUnanswerableEmptyRate?: number;
 }
 
 /**
  * Retrieval-only evaluation of one index version. Answerable questions with sources score
- * recall@8 over source URIs; the version passes when the mean reaches `minRecall`. Unanswerable
- * questions should retrieve nothing above the minimum score; they are reported, not gated,
- * because retrieval alone cannot always tell a near miss from an answer.
+ * recall@8 over source URIs; the version passes when the mean reaches `minRecall` and at least
+ * `minUnanswerableEmptyRate` of the unanswerable questions retrieve nothing. Retrieval returns
+ * only chunks at or above the minimum fused score (ADR 0006), so anything retrieved for an
+ * unanswerable question is above that threshold.
  */
 export async function runRetrievalEval(
   options: RetrievalEvalOptions,
 ): Promise<RetrievalEvalResult> {
   const { evalSet, access, versionId, embeddings, retrieval, signal } = options;
   const minRecall = options.minRecall ?? DEFAULT_MIN_RECALL;
+  const minUnanswerableEmptyRate = options.minUnanswerableEmptyRate ?? 1;
   const questions = evalSet.questions;
   const vectors = await embeddings.embed(
     questions.map((question) => question.question),
@@ -85,12 +91,16 @@ export async function runRetrievalEval(
   const recallAt8 =
     scored.length === 0 ? 0 : scored.reduce((sum, value) => sum + value, 0) / scored.length;
   const unanswerable = results.filter((result) => !result.answerable);
+  const unanswerableEmpty = unanswerable.filter((result) => result.ok).length;
+  const unanswerableRate = unanswerable.length === 0 ? 1 : unanswerableEmpty / unanswerable.length;
   return {
-    passed: scored.length > 0 && recallAt8 >= minRecall,
+    passed:
+      scored.length > 0 && recallAt8 >= minRecall && unanswerableRate >= minUnanswerableEmptyRate,
     minRecall,
     recallAt8,
-    unanswerableEmpty: unanswerable.filter((result) => result.ok).length,
+    unanswerableEmpty,
     unanswerable: unanswerable.length,
+    minUnanswerableEmptyRate,
     questions: results,
   };
 }

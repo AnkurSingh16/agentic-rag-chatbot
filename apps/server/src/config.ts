@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { ChatbotError, authModeOverrideVariable, loadInstanceConfig } from '@agentic-rag/core';
+import {
+  ChatbotError,
+  authModeOverrideVariable,
+  isLoopbackHost,
+  loadInstanceConfig,
+} from '@agentic-rag/core';
 import type { Environment, InstanceConfig } from '@agentic-rag/core';
 
 export interface AppConfig {
@@ -17,7 +22,6 @@ export interface AppConfig {
 }
 
 const MIN_SECRET_LENGTH = 32;
-const LOOPBACK: ReadonlySet<string> = new Set(['localhost', '::1', '[::1]']);
 
 function setting(env: Environment, name: string): string | undefined {
   const value = env[name]?.trim();
@@ -45,7 +49,7 @@ export function readAppConfig(env: Environment, cwd: string): AppConfig {
   if (sessionSecret === undefined) {
     // A random secret per start is only acceptable for a local, unbilled server: anywhere else a
     // restart would silently end every session, and live mode spends money per request.
-    const loopback = LOOPBACK.has(host) || host.startsWith('127.');
+    const loopback = isLoopbackHost(host);
     const reason =
       env.NODE_ENV === 'production'
         ? 'NODE_ENV=production'

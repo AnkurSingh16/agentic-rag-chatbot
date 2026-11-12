@@ -43,7 +43,8 @@ displayName: Test
 persona:
   systemPrompt: Answer from the documents.
   answerStyle: Short.
-  outOfScope: I cannot help with that.
+  fallback:
+    message: I cannot help with that.
 models:
   chat: claude-haiku-5-5
 embedding:

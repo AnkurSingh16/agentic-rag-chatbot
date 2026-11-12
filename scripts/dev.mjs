@@ -1,12 +1,15 @@
-// npm run dev / npm run dev:live: start PostgreSQL, migrate, train the demo instance if needed,
-// then run apps/server and apps/web-demo together. Run through `node --env-file-if-exists=.env`.
+// npm run dev, npm run dev:live and npm run dev:ollama: start PostgreSQL, migrate, train the demo
+// instance if needed, then run apps/server and apps/web-demo together. Run through
+// `node --env-file-if-exists=.env`.
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { fail, newestVersion, requireEnv, step, trainEvalActivate } from './lib.mjs';
 
 const live = process.argv.includes('--live');
+const ollama = process.argv.includes('--ollama');
 const DEMO = 'demo';
 
 // The key must come from this project's .env, never from a shell profile, so it is read from the
@@ -20,6 +23,43 @@ function keyFromDotEnv() {
 }
 
 const apiKey = live ? keyFromDotEnv() : undefined;
+
+// The API and the web demo default to 4100 and 5180. Either can be moved with PORT and WEB_DEMO_PORT
+// in .env, for example when another project already uses those ports.
+const apiPort = process.env.PORT?.trim() || '4100';
+const webPort = process.env.WEB_DEMO_PORT?.trim() || '5180';
+
+function portFree(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => {
+      probe.close(() => resolve(true));
+    });
+    probe.listen(Number(port), '127.0.0.1');
+  });
+}
+
+for (const [name, port] of [
+  ['PORT (API)', apiPort],
+  ['WEB_DEMO_PORT (web demo)', webPort],
+]) {
+  if (!(await portFree(port))) {
+    fail(
+      `${name} ${port} is already in use. Pick free ports in .env, for example:\n` +
+        '  PORT=4101\n  WEB_DEMO_PORT=5181\n' +
+        'Then add the web demo origin to allowedOrigins in instances/demo/instance.yaml, for example\n' +
+        '  - http://127.0.0.1:5181',
+    );
+  }
+}
+const demoConfig = readFileSync('instances/demo/instance.yaml', 'utf8');
+if (!demoConfig.includes(`http://127.0.0.1:${webPort}`)) {
+  process.stdout.write(
+    `\nWarning: instances/demo/instance.yaml does not allow http://127.0.0.1:${webPort}. ` +
+      'The web demo will get 403 from the API until you add that origin to allowedOrigins.\n',
+  );
+}
 if (live && apiKey === undefined) {
   fail(
     "npm run dev:live needs ANTHROPIC_API_KEY in this project's .env file. Create a key in the " +
@@ -37,8 +77,11 @@ if (live && !process.env.SESSION_SECRET) {
 
 const env = {
   ...process.env,
-  LLM_PROVIDER: live ? 'anthropic' : 'mock',
+  LLM_PROVIDER: live ? 'anthropic' : ollama ? 'ollama' : 'mock',
   EMBEDDING_PROVIDER: process.env.EMBEDDING_PROVIDER || 'local',
+  PORT: apiPort,
+  WEB_DEMO_PORT: webPort,
+  VITE_CHAT_API_URL: process.env.VITE_CHAT_API_URL || `http://127.0.0.1:${apiPort}`,
 };
 if (live) env.ANTHROPIC_API_KEY = apiKey;
 else delete env.ANTHROPIC_API_KEY;
@@ -58,7 +101,42 @@ if (process.env.DEV_SKIP_DOCKER === '1') {
   await step('docker compose up -d --wait', 'docker', ['compose', 'up', '-d', '--wait'], { env });
 }
 await step('npm run build', 'npm', ['run', 'build'], { env });
+if (ollama) {
+  env.OLLAMA_MODEL = await checkOllama(env);
+}
 await step('ragctl migrate', process.execPath, ['packages/cli/bin/ragctl.mjs', 'migrate'], { env });
+
+// Ollama must be running and the model pulled before the API starts; the messages say what to run.
+async function checkOllama(environment) {
+  const { ollamaBaseUrl, ollamaModelName, OLLAMA_DEFAULT_BASE_URL } =
+    await import('../packages/core/dist/index.js');
+  const baseUrl = ollamaBaseUrl(
+    environment.OLLAMA_BASE_URL?.trim() || OLLAMA_DEFAULT_BASE_URL,
+    environment.OLLAMA_ALLOW_REMOTE === 'true',
+  );
+  const model = ollamaModelName(environment);
+  let tags;
+  try {
+    const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    tags = await response.json();
+  } catch {
+    fail(
+      `Ollama is not reachable at ${baseUrl}. Start it with:\n` +
+        '  brew services start ollama\n' +
+        'or run "ollama serve" in another terminal, then run npm run dev:ollama again.',
+    );
+  }
+  const names = (tags.models ?? []).map((entry) => entry.name);
+  const pulled = names.includes(model) || names.includes(`${model}:latest`);
+  if (!pulled) {
+    fail(
+      `The model "${model}" is not pulled. Run:\n  ollama pull ${model}\nthen run npm run dev:ollama again.`,
+    );
+  }
+  process.stdout.write(`\nOllama is running at ${baseUrl} and has ${model}.\n`);
+  return model;
+}
 
 // Retrain when the demo has no active version or was built with other embeddings, for example
 // after switching EMBEDDING_PROVIDER.
@@ -77,8 +155,8 @@ if (active === undefined || active.embeddingProvider !== expectedProvider) {
 }
 
 process.stdout.write(
-  `\nStarting the API (LLM_PROVIDER=${env.LLM_PROVIDER}, EMBEDDING_PROVIDER=${env.EMBEDDING_PROVIDER}) and the web demo.\n` +
-    'Open http://127.0.0.1:5180 and press Ctrl+C to stop.\n\n',
+  `\nStarting the API (LLM_PROVIDER=${env.LLM_PROVIDER}, EMBEDDING_PROVIDER=${env.EMBEDDING_PROVIDER}${ollama ? `, OLLAMA_MODEL=${env.OLLAMA_MODEL}` : ''}) and the web demo.\n` +
+    `Open http://127.0.0.1:${webPort} and press Ctrl+C to stop.\n\n`,
 );
 const children = [
   spawn(process.execPath, ['apps/server/dist/main.js'], { stdio: 'inherit', env }),

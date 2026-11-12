@@ -17,7 +17,11 @@ function instance(limits: Record<string, number> = {}): InstanceConfig {
   return instanceConfigSchema.parse({
     id: 'help',
     displayName: 'Help desk',
-    persona: { systemPrompt: 'Answer.', answerStyle: 'Short.', outOfScope: 'Out of scope.' },
+    persona: {
+      systemPrompt: 'Answer.',
+      answerStyle: 'Short.',
+      fallback: { message: 'Out of scope.' },
+    },
     auth: { mode: 'public' },
     allowedOrigins: [ORIGIN],
     sources: [{ type: 'folder', path: 'data' }],

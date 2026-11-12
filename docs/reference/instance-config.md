@@ -13,43 +13,46 @@ Each chatbot instance is configured by `instances/<id>/instance.yaml`. The serve
 
 ## Fields
 
-| Field                           | Type                                  | Default      | Notes                                                                                                                                                                                                      |
-| ------------------------------- | ------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                            | string                                | —            | Required. `^[a-z][a-z0-9-]{1,39}$`. Also names the auth override variable.                                                                                                                                 |
-| `displayName`                   | string                                | —            | Required, not blank.                                                                                                                                                                                       |
-| `persona.systemPrompt`          | string                                | —            | Required, 1 to 4,000 characters.                                                                                                                                                                           |
-| `persona.answerStyle`           | string                                | —            | Required, 1 to 1,000 characters. Tone and length guidance for answers.                                                                                                                                     |
-| `persona.outOfScope`            | string                                | —            | Required, 1 to 1,000 characters. Refusal text for out-of-scope questions, forbidden topics and blocked answers.                                                                                            |
-| `persona.forbiddenTopics`       | string[]                              | `[]`         | At most 50, each up to 200 characters. Topics refused by `guard_out` (ADR 0005).                                                                                                                           |
-| `models.chat`                   | string                                | none         | Optional Anthropic model for answers, for example `claude-sonnet-5-5`. Without it the server uses `LLM_MODEL`, then `claude-haiku-5-5` (ADR 0008).                                                         |
-| `models.router`                 | string                                | none         | Optional model for the routing call. Defaults to the answer model.                                                                                                                                         |
-| `embedding.provider`            | `local` \| `mock`                     | `local`      | `local` runs all-MiniLM-L6-v2 inside Node; `mock` is for tests and offline development. `EMBEDDING_PROVIDER` overrides it (ADR 0008).                                                                      |
-| `embedding.model`               | string                                | per provider | `Xenova/all-MiniLM-L6-v2` for `local`, `mock-hash-v1` for `mock`.                                                                                                                                          |
-| `embedding.dimensions`          | `384`                                 | `384`        | Any other value is rejected (ADR 0008).                                                                                                                                                                    |
-| `auth.mode`                     | `public` \| `authenticated` \| `rbac` | —            | Required. Selects which other `auth` fields are required.                                                                                                                                                  |
-| `auth.issuer`                   | https URL                             | —            | Required for `authenticated` and `rbac`. OIDC issuer.                                                                                                                                                      |
-| `auth.audience`                 | string                                | —            | Required for `authenticated` and `rbac`.                                                                                                                                                                   |
-| `auth.defaultTags`              | string[]                              | —            | Required for `authenticated`, at least one. Access tags every signed-in caller receives.                                                                                                                   |
-| `auth.roleClaim`                | string                                | —            | Required for `rbac`. Token claim that holds the caller's roles.                                                                                                                                            |
-| `auth.roles`                    | map of role name to permission[]      | —            | Required for `rbac`, at least one role. Role names match `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`; `__proto__`, `constructor` and `prototype` are rejected.                                                    |
-| `allowedOrigins`                | string[]                              | —            | Required, at least one. Each entry is an exact origin with no path or trailing slash. Must be `https`, except `http` for `localhost`, `127.0.0.1` and `[::1]`. `*` is rejected anywhere in the value.      |
-| `limits.maxOutputTokens`        | integer 64–4096                       | `512`        | Output token cap per model call (ADR 0008).                                                                                                                                                                |
-| `limits.maxTurnsPerSession`     | integer 1–1000                        | `20`         | Messages one session may send, counted from stored messages. Then `429 rate_limited`.                                                                                                                      |
-| `limits.requestsPerMinutePerIp` | integer 1–1000                        | `20`         | Requests to the instance's routes (config, session, chat; preflights excluded) per IP (IPv6 by /64) per minute, counted by `@fastify/rate-limit` in each server process's memory. Then `429 rate_limited`. |
-| `limits.dailyRequests`          | integer 1–1000000                     | `500`        | Chat requests per instance per UTC day, counted in PostgreSQL. Then `429 budget_exceeded`.                                                                                                                 |
-| `limits.dailyRequestsPerIp`     | integer 1–1000000                     | `100`        | Chat requests per IP per UTC day, checked before the instance cap so one client cannot use it all. Then `429 budget_exceeded`.                                                                             |
-| `theme.primaryColor`            | hex colour                            | none         | Optional. `#rgb`, `#rrggbb` or `#rrggbbaa`.                                                                                                                                                                |
-| `theme.backgroundColor`         | hex colour                            | none         | Optional.                                                                                                                                                                                                  |
-| `theme.textColor`               | hex colour                            | none         | Optional.                                                                                                                                                                                                  |
-| `theme.borderRadius`            | length                                | none         | Optional. A number with `px`, `rem` or `em`, for example `8px`. Theme values reach client CSS, so nothing else is accepted.                                                                                |
-| `features.adminApi`             | boolean                               | `false`      | Enables admin and training routes. Rejected for `public` instances.                                                                                                                                        |
-| `sources`                       | source[]                              | —            | Required, at least one. See [Sources](#sources).                                                                                                                                                           |
-| `chunking.targetTokens`         | positive integer                      | `450`        | Tokens are estimated as characters ÷ 4. Must not exceed `maxTokens`.                                                                                                                                       |
-| `chunking.overlapTokens`        | integer ≥ 0                           | `60`         | Must be below `targetTokens`.                                                                                                                                                                              |
-| `chunking.minTokens`            | integer ≥ 0                           | `50`         | Must be below `targetTokens`.                                                                                                                                                                              |
-| `chunking.maxTokens`            | integer 100–8000                      | `800`        | Never exceeded by a chunk, including its heading prefix (capped at 200 characters).                                                                                                                        |
-| `evalSet`                       | string                                | none         | Optional path to the instance's eval questions, run by `ragctl eval`. Activation requires a passing eval run (ADR 0002).                                                                                   |
-| `requiredPolicies`              | string[]                              | none         | Optional. Row-level security policy names that must exist before the instance is served (ADR 0007). Lower-case SQL identifiers.                                                                            |
+| Field                                 | Type                                  | Default      | Notes                                                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                  | string                                | —            | Required. `^[a-z][a-z0-9-]{1,39}$`. Also names the auth override variable.                                                                                                                                 |
+| `displayName`                         | string                                | —            | Required, not blank.                                                                                                                                                                                       |
+| `persona.systemPrompt`                | string                                | —            | Required, 1 to 4,000 characters.                                                                                                                                                                           |
+| `persona.answerStyle`                 | string                                | —            | Required, 1 to 1,000 characters. Tone and length guidance for answers.                                                                                                                                     |
+| `persona.fallback`                    | object                                | —            | Required. What the visitor sees when the documents do not answer, a question is out of scope, or an answer is blocked. See [Fallback policy](#fallback-policy).                                            |
+| `persona.styleGuide`                  | string                                | house style  | Optional, up to 1,000 characters. Voice of the answers. The default is friendly, plain English, short paragraphs, first person.                                                                            |
+| `persona.examples`                    | `{ question, answer }[]`              | `[]`         | At most 3. Example answers that show tone; they are included in the answer prompt and cite nothing.                                                                                                        |
+| `persona.forbiddenTopics`             | string[]                              | `[]`         | At most 50, each up to 200 characters. Topics refused by `guard_out` (ADR 0005).                                                                                                                           |
+| `models.chat`                         | string                                | none         | Optional Anthropic model for answers, for example `claude-sonnet-5-5`. Without it the server uses `LLM_MODEL`, then `claude-haiku-5-5` (ADR 0008).                                                         |
+| `models.router`                       | string                                | none         | Optional model for the routing call. Defaults to the answer model.                                                                                                                                         |
+| `embedding.provider`                  | `local` \| `mock`                     | `local`      | `local` runs all-MiniLM-L6-v2 inside Node; `mock` is for tests and offline development. `EMBEDDING_PROVIDER` overrides it (ADR 0008).                                                                      |
+| `embedding.model`                     | string                                | per provider | `Xenova/all-MiniLM-L6-v2` for `local`, `mock-hash-v1` for `mock`.                                                                                                                                          |
+| `embedding.dimensions`                | `384`                                 | `384`        | Any other value is rejected (ADR 0008).                                                                                                                                                                    |
+| `auth.mode`                           | `public` \| `authenticated` \| `rbac` | —            | Required. Selects which other `auth` fields are required.                                                                                                                                                  |
+| `auth.issuer`                         | https URL                             | —            | Required for `authenticated` and `rbac`. OIDC issuer.                                                                                                                                                      |
+| `auth.audience`                       | string                                | —            | Required for `authenticated` and `rbac`.                                                                                                                                                                   |
+| `auth.defaultTags`                    | string[]                              | —            | Required for `authenticated`, at least one. Access tags every signed-in caller receives.                                                                                                                   |
+| `auth.roleClaim`                      | string                                | —            | Required for `rbac`. Token claim that holds the caller's roles.                                                                                                                                            |
+| `auth.roles`                          | map of role name to permission[]      | —            | Required for `rbac`, at least one role. Role names match `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`; `__proto__`, `constructor` and `prototype` are rejected.                                                    |
+| `allowedOrigins`                      | string[]                              | —            | Required, at least one. Each entry is an exact origin with no path or trailing slash. Must be `https`, except `http` for `localhost`, `127.0.0.1` and `[::1]`. `*` is rejected anywhere in the value.      |
+| `limits.maxOutputTokens`              | integer 64–4096                       | `512`        | Output token cap per model call (ADR 0008).                                                                                                                                                                |
+| `limits.maxTurnsPerSession`           | integer 1–1000                        | `20`         | Messages one session may send, counted from stored messages. Then `429 rate_limited`.                                                                                                                      |
+| `limits.requestsPerMinutePerIp`       | integer 1–1000                        | `20`         | Requests to the instance's routes (config, session, chat; preflights excluded) per IP (IPv6 by /64) per minute, counted by `@fastify/rate-limit` in each server process's memory. Then `429 rate_limited`. |
+| `limits.dailyRequests`                | integer 1–1000000                     | `500`        | Chat requests per instance per UTC day, counted in PostgreSQL. Then `429 budget_exceeded`.                                                                                                                 |
+| `limits.dailyRequestsPerIp`           | integer 1–1000000                     | `100`        | Chat requests per IP per UTC day, checked before the instance cap so one client cannot use it all. Then `429 budget_exceeded`.                                                                             |
+| `theme.primaryColor`                  | hex colour                            | none         | Optional. `#rgb`, `#rrggbb` or `#rrggbbaa`.                                                                                                                                                                |
+| `theme.backgroundColor`               | hex colour                            | none         | Optional.                                                                                                                                                                                                  |
+| `theme.textColor`                     | hex colour                            | none         | Optional.                                                                                                                                                                                                  |
+| `theme.borderRadius`                  | length                                | none         | Optional. A number with `px`, `rem` or `em`, for example `8px`. Theme values reach client CSS, so nothing else is accepted.                                                                                |
+| `features.adminApi`                   | boolean                               | `false`      | Enables admin and training routes. Rejected for `public` instances.                                                                                                                                        |
+| `sources`                             | source[]                              | —            | Required, at least one. See [Sources](#sources).                                                                                                                                                           |
+| `chunking.targetTokens`               | positive integer                      | `450`        | Tokens are estimated as characters ÷ 4. Must not exceed `maxTokens`.                                                                                                                                       |
+| `chunking.overlapTokens`              | integer ≥ 0                           | `60`         | Must be below `targetTokens`.                                                                                                                                                                              |
+| `chunking.minTokens`                  | integer ≥ 0                           | `50`         | Must be below `targetTokens`.                                                                                                                                                                              |
+| `chunking.maxTokens`                  | integer 100–8000                      | `800`        | Never exceeded by a chunk, including its heading prefix (capped at 200 characters).                                                                                                                        |
+| `evalSet`                             | string                                | none         | Optional path to the instance's eval questions, run by `ragctl eval`. Activation requires a passing eval run (ADR 0002).                                                                                   |
+| `evaluation.minUnanswerableEmptyRate` | number 0–1                            | `1`          | Share of unanswerable eval questions that must retrieve nothing for `ragctl eval` to pass. The default requires all of them. See [Calibration](#calibration-of-the-retrieval-threshold).                   |
+| `requiredPolicies`                    | string[]                              | none         | Optional. Row-level security policy names that must exist before the instance is served (ADR 0007). Lower-case SQL identifiers.                                                                            |
 
 ### Permissions
 
@@ -118,7 +121,19 @@ displayName: Site assistant
 persona:
   systemPrompt: You answer questions about the services and articles published on this site.
   answerStyle: Short, factual answers in plain English, with citations.
-  outOfScope: I can only answer questions about the services and articles on this site.
+  styleGuide: Friendly and plain-spoken, in short paragraphs, speaking as the site's assistant.
+  examples:
+    - question: Do you offer architecture reviews?
+      answer: Yes. I run architecture reviews for small teams. The services page explains what is included.
+  fallback:
+    message: I can only answer questions about the services and articles on this site.
+    suggestedTopics:
+      - services
+      - mentoring
+      - writing
+    handoff:
+      url: https://ankursingh16.github.io/contact
+      label: Contact me about working together
   forbiddenTopics:
     - the site owner's current employment status
 models:
@@ -161,6 +176,8 @@ chunking:
   minTokens: 50
   maxTokens: 800
 evalSet: eval/questions.yaml
+evaluation:
+  minUnanswerableEmptyRate: 1
 ```
 
 An `rbac` instance replaces the `auth` block, for example:
@@ -186,3 +203,34 @@ auth:
 requiredPolicies:
   - aegis_tenant_restrict
 ```
+
+## Fallback policy
+
+`persona.fallback` replaces the single `outOfScope` text used before. The server returns it, as a template and without a model call, in these cases:
+
+- no chunk clears `minFusedScore`, so retrieval finds nothing (state `INSUFFICIENT_EVIDENCE`);
+- the answer still fails verification after the retry (state `INSUFFICIENT_EVIDENCE`);
+- the routing call classifies the question as out of scope or unsafe (states `OUT_OF_SCOPE` or `REFUSED`), or `forbiddenTopics` blocks an answer (state `REFUSED`).
+
+The text is the message, then one paragraph naming up to three `suggestedTopics`, then the handoff label and link when `handoff` is set. The handoff URL must be `https`. A `persona.outOfScope` key is now rejected at boot, so an instance file that still has it must be updated.
+
+## Calibration of the retrieval threshold
+
+The retrieval score is a reciprocal-rank fusion of the full-text and vector searches (ADR 0006). A chunk found by one search alone scores at most 1 / (60 + 1) = 0.01639, so `RETRIEVAL.minFusedScore` (0.0165) keeps only chunks that both searches found. I calibrated it on the demo eval set (10 answerable and 2 unanswerable questions) with the local model `Xenova/all-MiniLM-L6-v2`:
+
+| Measurement                                                           | Before (0.0125)       | After (0.0165)                                     |
+| --------------------------------------------------------------------- | --------------------- | -------------------------------------------------- |
+| Unanswerable questions with no chunk retrieved                        | 0 of 2                | 2 of 2                                             |
+| Highest fused score of a chunk retrieved for an unanswerable question | 0.0164 (both)         | none retrieved                                     |
+| recall@8 on answerable questions (minimum 0.60)                       | 1.00                  | 0.70                                               |
+| Answerable questions that retrieve nothing                            | 0                     | 3 (`sync-delay`, `sync-conflict`, `search-by-tag`) |
+| `ragctl eval` result                                                  | fails on unanswerable | passes                                             |
+
+The three lost questions were found by vector search only, so their fused score is 0.0164, the same as the unanswerable questions. I also checked whether a vector-distance floor could separate the two groups. It cannot with this model: the nearest chunk to each unanswerable question is at cosine distance 0.263 and 0.368, while the expected chunks of answerable questions range from 0.272 to 0.618. A fused-score threshold therefore trades answerable recall for the unanswerable check. With the default requirement (`minUnanswerableEmptyRate: 1`), the demo answers those three questions with the fallback. A better embedding model or a reranker should improve this, and it is the first thing to revisit when the eval set grows.
+
+### Limits of this measurement
+
+- The unanswerable side is two questions. That is too few to call the threshold calibrated in general. I will treat it as provisional until the demo set has at least ten unanswerable questions.
+- `ragctl eval` searches with the raw question. Production searches with the queries written by the routing step, so the eval does not exercise the path users hit. The manual check in the milestone 1 PR shows the difference: "Which formats can I export notes to?" retrieves `data/export.md` for the raw question in the eval, but the production turn fell back.
+- A passing eval is not a quality signal on its own. The demo's `minRecall` stays at the platform default of 0.60, so the 0.70 result passes even though it is lower than before the threshold change.
+- `persona.examples` are shown to the model as tone only. They are not checked against the documents, so a factual claim in an example is not grounded. Keep examples free of facts that are not in the documents.

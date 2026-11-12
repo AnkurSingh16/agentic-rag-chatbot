@@ -294,7 +294,7 @@ describe('createChatModel and resolveChatModels', () => {
       /needs ANTHROPIC_API_KEY in the app .env file/,
     );
     expect(() => createChatModel({ LLM_PROVIDER: 'openai' })).toThrow(
-      'LLM_PROVIDER must be mock or anthropic, got "openai"',
+      'LLM_PROVIDER must be mock, anthropic or ollama, got "openai"',
     );
     const { client } = fakeClient([]);
     expect(

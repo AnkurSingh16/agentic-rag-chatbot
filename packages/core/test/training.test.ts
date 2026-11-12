@@ -40,7 +40,7 @@ function config(overrides: Partial<InstanceConfigInput> = {}): InstanceConfig {
   return instanceConfigSchema.parse({
     id: 'help',
     displayName: 'Help',
-    persona: { systemPrompt: 'Answer.', answerStyle: 'Short.', outOfScope: 'No.' },
+    persona: { systemPrompt: 'Answer.', answerStyle: 'Short.', fallback: { message: 'No.' } },
 
     embedding: { provider: 'mock', model: 'mock-hash-v1' },
     auth: { mode: 'public' },

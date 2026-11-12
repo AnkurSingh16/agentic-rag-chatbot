@@ -11,7 +11,10 @@ displayName: ${id} assistant
 persona:
   systemPrompt: You answer questions using only the documents provided for this instance.
   answerStyle: Short, factual answers in plain English, with citations.
-  outOfScope: I can only answer questions about the documents for this assistant.
+  fallback:
+    message: I could not find that in the documents for this assistant.
+    suggestedTopics:
+      - opening hours
 # Chat model: LLM_MODEL or claude-haiku-5-5 unless set here, e.g. models.chat: claude-sonnet-5-5.
 # Local embeddings run inside Node; EMBEDDING_PROVIDER=mock overrides them for offline use.
 # Switching provider or model needs a new training run.

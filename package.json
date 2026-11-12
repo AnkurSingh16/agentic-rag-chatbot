@@ -29,6 +29,7 @@
     "prepare": "husky",
     "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
     "dev:live": "node --env-file-if-exists=.env scripts/dev.mjs --live",
+    "dev:ollama": "node --env-file-if-exists=.env scripts/dev.mjs --ollama",
     "ingest": "node --env-file-if-exists=.env scripts/ingest.mjs"
   },
   "devDependencies": {
