@@ -69,6 +69,7 @@ export { createAnthropicChatModel } from './llm/anthropic.js';
 export {
   OLLAMA_DEFAULT_BASE_URL,
   createOllamaChatModel,
+  isLoopbackHost,
   ollamaBaseUrl,
   ollamaModelName,
   recommendedOllamaModel,

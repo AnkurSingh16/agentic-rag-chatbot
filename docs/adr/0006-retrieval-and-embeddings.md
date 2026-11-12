@@ -41,3 +41,7 @@ Boot and the per-request version check (ADR 0002) fail on any dimension or model
 ## Dissent
 
 Architect B preferred an untyped `vector` column with partial `halfvec` HNSW indexes per dimension from the start, allowing 768- and 1024-dimension providers side by side and halving index memory. Deferred: no current consumer needs it, and the migration is straightforward when one does.
+
+## Amendment: minimum fused score
+
+I raised the minimum fused score from 0.0125 to 0.0165. A chunk found by one search alone scores at most 1 / 61, so the new value keeps only chunks that both searches found. The measurements, their limits and the trade-off for answerable recall are in [instance.yaml reference](../reference/instance-config.md#calibration-of-the-retrieval-threshold). The fusion itself and the candidate counts are unchanged.

@@ -160,6 +160,7 @@ Things to know:
 - Only a loopback `OLLAMA_BASE_URL` is accepted unless `OLLAMA_ALLOW_REMOTE=true`, so prompts and documents stay on the machine by default.
 - Small models are less reliable at tool calls. When the model does not call the routing tool, or calls it with invalid input, the question goes to retrieval as a knowledge question. Answers still come only from the documents, but routing is less precise than with Claude.
 - Ollama has no forced tool choice, so the `route` tool is offered but not required.
+- A response cut off by the output token limit is not flagged: Ollama reports it in `done_reason`, and the client does not read that field yet. Verification still rejects a paragraph that lacks a citation, but a truncated final sentence can reach the reader.
 - Answers from a small model cite less reliably. Verification still rejects any paragraph without a valid citation, so a weak answer ends as the instance's fallback rather than as an uncited claim.
 
 ## Ingesting documents for an instance

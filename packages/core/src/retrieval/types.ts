@@ -12,7 +12,7 @@ export const RETRIEVAL = {
   retryLimit: 16,
   /**
    * Fused scores below this are dropped. A chunk found by only one search scores at most
-   * 1 / (60 + 1) = 0.01639, so this keeps only chunks that both searches found (ADR 0006 and
+   * 1 / (60 + 1) = 0.01639, so this keeps only chunks that both searches found (see ADR 0006's amendment and
    * docs/reference/instance-config.md). Calibrated on the demo eval set with all-MiniLM-L6-v2.
    */
   minFusedScore: 0.0165,

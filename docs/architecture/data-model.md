@@ -172,7 +172,7 @@ As in ADR 0003: whoever holds the `rag_runtime` credential can set the session v
 `createPostgresRetrievalStore(pool)` implements the core `RetrievalStore` port. Each call runs in `withInstanceTransaction`:
 
 - `activeVersion` reads `instances.active_index_version_id` with the version's embedding provider and model. The agent graph refuses to answer when they differ from the server's embedding provider.
-- `search` runs one statement per query against an explicit version: a full-text CTE (`websearch_to_tsquery('english', ...)`, ranked by `ts_rank_cd`, top 40) and a vector CTE (cosine distance through the HNSW index, top 40, dropping candidates with a distance above 0.8), fused with Reciprocal Rank Fusion (k = 60). Chunks with a fused score below 0.0125 are dropped, and the top 8 (16 on the verification retry) are returned. Constants: `RETRIEVAL` in `packages/core/src/retrieval/types.ts`.
+- `search` runs one statement per query against an explicit version: a full-text CTE (`websearch_to_tsquery('english', ...)`, ranked by `ts_rank_cd`, top 40) and a vector CTE (cosine distance through the HNSW index, top 40, dropping candidates with a distance above 0.8), fused with Reciprocal Rank Fusion (k = 60). Chunks with a fused score below 0.0165 are dropped, and the top 8 (16 on the verification retry) are returned. Constants: `RETRIEVAL` in `packages/core/src/retrieval/types.ts`.
 
 With a `rag_runtime` pool the corpus policy applies the caller's tenant and tags; `ragctl eval` uses a `rag_ingest` pool, whose policy reads every chunk of the instance, to score a version before activation.
 

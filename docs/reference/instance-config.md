@@ -227,3 +227,10 @@ The retrieval score is a reciprocal-rank fusion of the full-text and vector sear
 | `ragctl eval` result                                                  | fails on unanswerable | passes                                             |
 
 The three lost questions were found by vector search only, so their fused score is 0.0164, the same as the unanswerable questions. I also checked whether a vector-distance floor could separate the two groups. It cannot with this model: the nearest chunk to each unanswerable question is at cosine distance 0.263 and 0.368, while the expected chunks of answerable questions range from 0.272 to 0.618. A fused-score threshold therefore trades answerable recall for the unanswerable check. With the default requirement (`minUnanswerableEmptyRate: 1`), the demo answers those three questions with the fallback. A better embedding model or a reranker should improve this, and it is the first thing to revisit when the eval set grows.
+
+### Limits of this measurement
+
+- The unanswerable side is two questions. That is too few to call the threshold calibrated in general. I will treat it as provisional until the demo set has at least ten unanswerable questions.
+- `ragctl eval` searches with the raw question. Production searches with the queries written by the routing step, so the eval does not exercise the path users hit. The manual check in the milestone 1 PR shows the difference: "Which formats can I export notes to?" retrieves `data/export.md` for the raw question in the eval, but the production turn fell back.
+- A passing eval is not a quality signal on its own. The demo's `minRecall` stays at the platform default of 0.60, so the 0.70 result passes even though it is lower than before the threshold change.
+- `persona.examples` are shown to the model as tone only. They are not checked against the documents, so a factual claim in an example is not grounded. Keep examples free of facts that are not in the documents.
