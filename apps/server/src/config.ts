@@ -30,7 +30,7 @@ export function readAppConfig(env: Environment, cwd: string): AppConfig {
   if (databaseUrl === undefined) {
     throw new ChatbotError('invalid_config', 'DATABASE_URL is not set; see .env.example');
   }
-  const port = Number(setting(env, 'PORT') ?? '4000');
+  const port = Number(setting(env, 'PORT') ?? '4100');
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new ChatbotError('invalid_config', 'PORT must be an integer from 1 to 65535');
   }

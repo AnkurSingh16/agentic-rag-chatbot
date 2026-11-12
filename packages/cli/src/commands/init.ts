@@ -21,7 +21,7 @@ embedding:
 auth:
   mode: public
 allowedOrigins:
-  - http://localhost:5173
+  - http://localhost:5180
 sources:
   - type: folder
     path: data

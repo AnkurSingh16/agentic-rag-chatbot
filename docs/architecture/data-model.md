@@ -9,7 +9,7 @@ Design decisions: [ADR 0002](../adr/0002-instances-and-index-versions.md) (insta
 ## Run it locally
 
 1. Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD`, `RAG_RUNTIME_PASSWORD` and `RAG_INGEST_PASSWORD` (16 to 256 characters, runtime and ingest different). Fill in the three database URLs with those passwords.
-2. Start PostgreSQL 17 with pgvector: `docker compose up -d`. It listens on `127.0.0.1:5432` only.
+2. Start PostgreSQL 17 with pgvector: `docker compose up -d`. It listens on `127.0.0.1:5433` only (`RAG_POSTGRES_PORT` changes it).
 3. Build and migrate: `npm run build`, then `npm run db:migrate`.
 4. Run the integration tests against it, with `TEST_DATABASE_ADMIN_URL`, `TEST_DATABASE_URL` and `TEST_DATABASE_INGEST_URL` set to the admin, runtime and ingest URLs: `npm run test:integration`.
 

@@ -12,6 +12,8 @@ permissions:
 env:
   LLM_PROVIDER: mock
   EMBEDDING_PROVIDER: mock
+  # onnxruntime-node otherwise downloads CUDA libraries on Linux; the embedder runs on the CPU.
+  npm_config_onnxruntime_node_install: skip
 
 concurrency:
   group: ci-${{ github.ref }}
