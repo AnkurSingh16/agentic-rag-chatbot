@@ -62,6 +62,59 @@ describe('ChatWidget', () => {
     expect(new Headers(init[1].headers).get('x-session-token')).toBe('session-token');
   });
 
+  it('numbers citations as footnotes in order of first use and hides the markers', async () => {
+    const body =
+      frame('meta', { requestId: 'r2', conversationId: 'conv-2', indexVersion: 'v1' }) +
+      frame('token', {
+        text: 'Sync takes about thirty seconds. [c4d5e6f]\n\nExport to PDF too. [c1a2b3c] [c4d5e6f]',
+      }) +
+      frame('citation', {
+        citationId: 'c1a2b3c',
+        title: 'Exporting notes',
+        excerpt: 'Choose File > Export.',
+        sourceUri: 'https://example.com/help/export',
+      }) +
+      frame('citation', {
+        citationId: 'c4d5e6f',
+        title: 'Sync',
+        excerpt: 'Changes sync in about thirty seconds.',
+        sourceUri: 'data/sync.md',
+      }) +
+      frame('final', { state: 'ANSWERED', citationIds: ['c4d5e6f', 'c1a2b3c'], usage: {} });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith('/session')
+            ? new Response(JSON.stringify({ token: 'session-token' }))
+            : new Response(streamOf(body), { headers: { 'content-type': 'text/event-stream' } }),
+        ),
+      ),
+    );
+
+    const { container } = render(<ChatWidget apiUrl="http://api.test" instanceId="demo" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Sync and export?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText(/Export to PDF too/);
+    const answer = container.querySelector('.chat-assistant .chat-text')?.textContent ?? '';
+    expect(answer).toBe('Sync takes about thirty seconds.1\n\nExport to PDF too.21');
+    expect(answer).not.toContain('[c');
+
+    const footnotes = Array.from(container.querySelectorAll('.chat-footnotes li')).map(
+      (item) => item.textContent,
+    );
+    expect(footnotes).toEqual([
+      'Sync data/sync.md',
+      'Exporting notes https://example.com/help/export',
+    ]);
+    const webLink = container.querySelector('.chat-footnote-ref a[href^="https://"]');
+    expect(webLink?.textContent).toBe('2');
+    const localRef = container.querySelector('.chat-footnote-ref');
+    expect(localRef?.querySelector('a')).toBeNull();
+  });
+
   it('shows limit errors and the insufficient-evidence state', async () => {
     const responses = [
       new Response(JSON.stringify({ token: 't' })),

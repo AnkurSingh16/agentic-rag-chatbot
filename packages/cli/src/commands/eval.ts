@@ -78,6 +78,7 @@ export async function evalCommand(
       retrieval,
       signal: context.signal,
       minRecall,
+      minUnanswerableEmptyRate: instance.config.evaluation.minUnanswerableEmptyRate,
     });
     await store.recordEvalRun(id, version.id, {
       embeddingProvider: embeddings.provider,
@@ -89,6 +90,7 @@ export async function evalCommand(
         minRecall,
         unanswerableEmpty: evaluated.unanswerableEmpty,
         unanswerable: evaluated.unanswerable,
+        minUnanswerableEmptyRate: evaluated.minUnanswerableEmptyRate,
         questions: evaluated.questions.length,
       },
     });
@@ -108,7 +110,7 @@ export async function evalCommand(
   const verdict = result.passed ? 'passed' : 'failed';
   context.stdout(`${formatTable(rows)}
 
-Version ${versionId}: recall@8 ${result.recallAt8.toFixed(2)} (minimum ${minRecall.toFixed(2)}), unanswerable questions with no retrieval ${result.unanswerableEmpty}/${result.unanswerable}. Eval ${verdict}.
+Version ${versionId}: recall@8 ${result.recallAt8.toFixed(2)} (minimum ${minRecall.toFixed(2)}), unanswerable questions with no retrieval ${result.unanswerableEmpty}/${result.unanswerable} (minimum rate ${result.minUnanswerableEmptyRate.toFixed(2)}). Eval ${verdict}.
 `);
   if (!result.passed) {
     throw new ChatbotError('invalid_input', `Eval failed for ${versionId}; it cannot be activated`);

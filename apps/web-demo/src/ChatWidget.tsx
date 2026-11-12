@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { SyntheticEvent } from 'react';
+import type { ReactNode, SyntheticEvent } from 'react';
 import { readSse } from './sse.js';
 
 interface Citation {
@@ -30,6 +30,79 @@ const STATE_NOTES: Partial<Record<FinalState, string>> = {
   OUT_OF_SCOPE: 'Outside what this assistant covers',
   REFUSED: 'Declined',
 };
+
+// Citation markers as the server emits them in the answer text, for example [c1a2b3c].
+const CITATION_MARKER = /\s*\[(c[0-9a-f]{6})\]/g;
+
+function isWebLink(uri: string): boolean {
+  return /^https?:\/\//.test(uri);
+}
+
+/**
+ * Replaces citation markers with superscript numbers and lists the cited sources under the answer,
+ * numbered in the order they first appear. A number links to its source when the source is a web
+ * address; other sources are shown as text.
+ */
+function Answer({ text, citations }: { text: string; citations: Citation[] }) {
+  const byId = new Map(citations.map((citation) => [citation.citationId, citation]));
+  const order: string[] = [];
+  for (const match of text.matchAll(CITATION_MARKER)) {
+    const id = match[1] ?? '';
+    if (byId.has(id) && !order.includes(id)) order.push(id);
+  }
+
+  const pieces: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(CITATION_MARKER)) {
+    const index = match.index;
+    pieces.push(text.slice(cursor, index));
+    cursor = index + match[0].length;
+    const id = match[1] ?? '';
+    const citation = byId.get(id);
+    if (citation === undefined) continue;
+    const number = order.indexOf(id) + 1;
+    pieces.push(
+      <sup key={`${index}-${id}`} className="chat-footnote-ref">
+        {isWebLink(citation.sourceUri) ? (
+          <a href={citation.sourceUri} target="_blank" rel="noopener noreferrer">
+            {number}
+          </a>
+        ) : (
+          number
+        )}
+      </sup>,
+    );
+  }
+  pieces.push(text.slice(cursor));
+
+  return (
+    <>
+      <p className="chat-text">{pieces}</p>
+      {order.length > 0 && (
+        <ol className="chat-footnotes" aria-label="Sources">
+          {order.map((id) => {
+            const citation = byId.get(id);
+            if (citation === undefined) return null;
+            return (
+              <li key={id} title={citation.excerpt}>
+                {citation.title}{' '}
+                <span className="chat-source">
+                  {isWebLink(citation.sourceUri) ? (
+                    <a href={citation.sourceUri} target="_blank" rel="noopener noreferrer">
+                      {citation.sourceUri}
+                    </a>
+                  ) : (
+                    citation.sourceUri
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </>
+  );
+}
 
 const ERROR_TEXT: Record<string, string> = {
   rate_limited: 'Too many messages. Wait a minute and try again.',
@@ -173,7 +246,9 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
           <ol className="chat-messages" aria-live="polite">
             {messages.map((message) => (
               <li key={message.id} className={`chat-message chat-${message.role}`}>
-                {message.text !== '' && <p className="chat-text">{message.text}</p>}
+                {message.text !== '' && (
+                  <Answer text={message.text} citations={message.citations} />
+                )}
                 {message.role === 'assistant' &&
                   message.text === '' &&
                   message.error === undefined && <p className="chat-pending">Thinking…</p>}
@@ -184,15 +259,6 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
                 )}
                 {message.state !== undefined && STATE_NOTES[message.state] !== undefined && (
                   <p className="chat-note">{STATE_NOTES[message.state]}</p>
-                )}
-                {message.citations.length > 0 && (
-                  <ul className="chat-citations" aria-label="Sources">
-                    {message.citations.map((citation) => (
-                      <li key={citation.citationId} title={citation.excerpt}>
-                        [{citation.citationId}] {citation.title} <span>({citation.sourceUri})</span>
-                      </li>
-                    ))}
-                  </ul>
                 )}
               </li>
             ))}
