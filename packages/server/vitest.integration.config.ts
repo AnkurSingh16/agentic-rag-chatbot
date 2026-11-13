@@ -13,6 +13,7 @@ export default defineConfig({
     include: ['test/integration/**/*.test.ts'],
     // All files share one database and one migration history.
     fileParallelism: false,
+    globalSetup: [fileURLToPath(new URL('./test/integration/global-setup.ts', import.meta.url))],
     testTimeout: 30_000,
     hookTimeout: 60_000,
   },

@@ -73,7 +73,16 @@ export interface OllamaChatModelOptions {
   model: string;
   idleTimeoutMs?: number;
   fetch?: OllamaFetch;
+  /** Defaults to temperature 0.2 and no seed. The eval harness pins both (ADR 0009). */
+  sampling?: OllamaSampling;
 }
+
+export interface OllamaSampling {
+  temperature: number;
+  seed?: number;
+}
+
+const DEFAULT_SAMPLING: OllamaSampling = { temperature: 0.2 };
 
 interface OllamaToolCall {
   function?: { name?: unknown; arguments?: unknown };
@@ -89,7 +98,7 @@ interface OllamaChunk {
 
 // Ollama has no forced tool choice, so `toolChoice` is not sent. The graph copes with a missing
 // tool call by treating the question as knowledge (agent/run-chat.ts).
-function toBody(request: ChatRequest, model: string) {
+function toBody(request: ChatRequest, model: string, sampling: OllamaSampling) {
   // Ollama takes one system message, so the instructions and the retrieved documents share it.
   // The documents sit between the rules and a second copy of the rule about untrusted text, so
   // the last instruction the model reads is that documents are data (ADR 0005).
@@ -108,7 +117,11 @@ function toBody(request: ChatRequest, model: string) {
       { role: 'system', content: system },
       ...request.messages.map((message) => ({ role: message.role, content: message.content })),
     ],
-    options: { num_predict: request.maxOutputTokens, temperature: 0.2 },
+    options: {
+      num_predict: request.maxOutputTokens,
+      temperature: sampling.temperature,
+      ...(sampling.seed === undefined ? {} : { seed: sampling.seed }),
+    },
   };
   if (request.tools !== undefined && request.tools.length > 0) {
     body.tools = request.tools.map((tool) => ({
@@ -205,7 +218,7 @@ export function createOllamaChatModel(options: OllamaChatModelOptions): ChatMode
           response = await fetchFn(`${options.baseUrl}/api/chat`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(toBody(request, model)),
+            body: JSON.stringify(toBody(request, model, options.sampling ?? DEFAULT_SAMPLING)),
             signal: controller.signal,
           });
         } catch (error) {

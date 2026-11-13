@@ -38,6 +38,11 @@ export interface RetrievalEvalOptions {
   minRecall?: number;
   /** See `evaluation.minUnanswerableEmptyRate` in instance.yaml. Defaults to requiring all. */
   minUnanswerableEmptyRate?: number;
+  /**
+   * When false, the unanswerable check is reported but does not decide the verdict. Used with the
+   * chat refusal check, which judges the same questions end to end (ADR 0009). Defaults to true.
+   */
+  gateUnanswerable?: boolean;
 }
 
 /**
@@ -53,6 +58,7 @@ export async function runRetrievalEval(
   const { evalSet, access, versionId, embeddings, retrieval, signal } = options;
   const minRecall = options.minRecall ?? DEFAULT_MIN_RECALL;
   const minUnanswerableEmptyRate = options.minUnanswerableEmptyRate ?? 1;
+  const gateUnanswerable = options.gateUnanswerable ?? true;
   const questions = evalSet.questions;
   const vectors = await embeddings.embed(
     questions.map((question) => question.question),
@@ -95,7 +101,9 @@ export async function runRetrievalEval(
   const unanswerableRate = unanswerable.length === 0 ? 1 : unanswerableEmpty / unanswerable.length;
   return {
     passed:
-      scored.length > 0 && recallAt8 >= minRecall && unanswerableRate >= minUnanswerableEmptyRate,
+      scored.length > 0 &&
+      recallAt8 >= minRecall &&
+      (!gateUnanswerable || unanswerableRate >= minUnanswerableEmptyRate),
     minRecall,
     recallAt8,
     unanswerableEmpty,

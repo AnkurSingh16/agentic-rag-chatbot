@@ -107,6 +107,14 @@ const personaSchema = z.strictObject({
   forbiddenTopics: z.array(nonEmpty.max(200)).max(50).default([]),
 });
 
+const verificationSchema = z.strictObject({
+  /**
+   * Asks the chat model whether each paragraph states only what its cited chunks say, before the
+   * paragraph is released. One extra model call per paragraph; off by default (ADR 0005).
+   */
+  judge: z.boolean().default(false),
+});
+
 const evaluationSchema = z.strictObject({
   /**
    * Share of unanswerable eval questions that must retrieve nothing above the minimum score for
@@ -240,6 +248,7 @@ export const instanceConfigSchema = z.strictObject({
   chunking: chunkingSchema.prefault({}),
   evalSet: nonEmpty.optional(),
   evaluation: evaluationSchema.prefault({}),
+  verification: verificationSchema.prefault({}),
   requiredPolicies: z.array(z.string().regex(POLICY_NAME, 'Invalid policy name')).optional(),
 });
 

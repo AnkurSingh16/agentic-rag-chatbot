@@ -31,7 +31,78 @@ export function guardInput(message: string): string {
 export const CITATION = /\[(c[0-9a-f]{6})\]/g;
 
 export type ParagraphFailure =
-  'unsupported' | 'unknown_citation' | 'forbidden_topic' | 'injection' | 'disclosure';
+  | 'unsupported'
+  | 'unknown_citation'
+  | 'low_overlap'
+  | 'unsupported_claim'
+  | 'forbidden_topic'
+  | 'injection'
+  | 'disclosure';
+
+/**
+ * Share of a paragraph's content words that must also appear in the chunks it cites (ADR 0005).
+ * A lexical floor, not an entailment check: it rejects paragraphs that cite a chunk but say
+ * things the chunk does not contain.
+ */
+export const LEXICAL_OVERLAP_MIN = 0.5;
+
+// Words of at least four letters that carry no topic. Short words are excluded by length.
+const STOPWORDS: ReadonlySet<string> = new Set([
+  'about',
+  'also',
+  'another',
+  'because',
+  'been',
+  'before',
+  'being',
+  'both',
+  'could',
+  'does',
+  'each',
+  'from',
+  'have',
+  'here',
+  'into',
+  'just',
+  'like',
+  'more',
+  'most',
+  'only',
+  'other',
+  'over',
+  'should',
+  'some',
+  'such',
+  'than',
+  'that',
+  'their',
+  'them',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'those',
+  'through',
+  'under',
+  'very',
+  'were',
+  'what',
+  'when',
+  'where',
+  'which',
+  'while',
+  'will',
+  'with',
+  'would',
+  'your',
+]);
+
+function contentWords(text: string): string[] {
+  return words(text.replace(CITATION, ' ')).filter(
+    (word) => word.length >= 4 && !STOPWORDS.has(word),
+  );
+}
 
 export type ParagraphCheck =
   { ok: true; citationIds: string[] } | { ok: false; reason: ParagraphFailure };
@@ -82,12 +153,14 @@ export function instructionShingles(texts: readonly string[]): Set<string> {
 /**
  * `verify` and `guard_out` for one paragraph, before it is released: no forbidden topic
  * (case-insensitive), no phrase typical of a followed prompt injection, no run of eight words
- * copied from the instructions, every citation one of this request's IDs, and at least one
- * citation. This is not an entailment check (ADR 0005).
+ * copied from the instructions, every citation one of this request's IDs, at least one
+ * citation, and enough of the paragraph's content words in the cited chunks (see
+ * {@link LEXICAL_OVERLAP_MIN}). `known` maps each citation ID of this request to its chunk text.
+ * This is not an entailment check (ADR 0005).
  */
 export function checkParagraph(
   paragraph: string,
-  known: ReadonlySet<string>,
+  known: ReadonlyMap<string, string>,
   policy: OutputPolicy,
 ): ParagraphCheck {
   const lower = paragraph.toLowerCase();
@@ -104,5 +177,11 @@ export function checkParagraph(
   const cited = [...paragraph.matchAll(CITATION)].map((match) => match[1] ?? '');
   if (cited.some((id) => !known.has(id))) return { ok: false, reason: 'unknown_citation' };
   if (cited.length === 0) return { ok: false, reason: 'unsupported' };
+  const own = contentWords(paragraph);
+  if (own.length > 0) {
+    const source = new Set(cited.flatMap((id) => contentWords(known.get(id) ?? '')));
+    const shared = own.filter((word) => source.has(word)).length;
+    if (shared / own.length < LEXICAL_OVERLAP_MIN) return { ok: false, reason: 'low_overlap' };
+  }
   return { ok: true, citationIds: [...new Set(cited)] };
 }

@@ -20,7 +20,9 @@ interface ChunkRow {
 
 // Hybrid search from ADR 0006 in one statement: full-text and vector candidates, fused with
 // Reciprocal Rank Fusion. Row-level security limits both CTEs to chunks the caller may read; the
-// explicit instance and version filters let the planner use the scope index.
+// explicit instance and version filters let the planner use the scope index. The fused floor drops
+// full-text-only matches; vector candidates within maxVectorDistance are kept whatever their score
+// (ADR 0009).
 const SEARCH_SQL = `
 WITH fts AS (
   SELECT c.id, row_number() OVER (ORDER BY ts_rank_cd(c.tsv, q.query) DESC, c.id) AS rank
@@ -48,7 +50,7 @@ FROM (
 ) f
 JOIN rag.chunks c ON c.id = f.id
 JOIN rag.documents d ON d.id = c.document_id
-WHERE f.score >= $8
+WHERE f.score >= $8 OR f.id IN (SELECT id FROM vec)
 ORDER BY f.score DESC, c.id
 LIMIT $9`;
 

@@ -1,11 +1,30 @@
-import { ChatbotError, activateVersion } from '@agentic-rag/core';
+import {
+  ChatbotError,
+  activateVersion,
+  chatConfigFingerprint,
+  resolveChatModels,
+} from '@agentic-rag/core';
 import type { CliContext } from '../context.js';
-import { checkInstanceId, withIngestStore } from '../context.js';
+import { checkInstanceId, loadInstance, withIngestStore } from '../context.js';
+
+async function currentFingerprint(
+  context: CliContext,
+  instancesDir: string,
+  id: string,
+): Promise<string> {
+  const instance = await loadInstance(context, instancesDir, id);
+  return chatConfigFingerprint(instance.config, resolveChatModels(instance.config, context.env));
+}
 
 export async function activateCommand(
   context: CliContext,
   positionals: readonly string[],
-  options: { force: boolean; reason: string | undefined; operator: string | undefined },
+  options: {
+    force: boolean;
+    reason: string | undefined;
+    operator: string | undefined;
+    instancesDir: string;
+  },
 ): Promise<void> {
   if (positionals.length !== 2) {
     throw new ChatbotError(
@@ -19,6 +38,11 @@ export async function activateCommand(
     throw new ChatbotError('invalid_input', '--reason is only used together with --force');
   }
 
+  // The chat eval run must match the configuration in force, so the current fingerprint comes from
+  // the instance folder (ADR 0009). A forced activation skips the gate and does not need it.
+  const configFingerprint = options.force
+    ? null
+    : await currentFingerprint(context, options.instancesDir, id);
   const result = await withIngestStore(context, ({ store }) =>
     activateVersion({
       store,
@@ -27,6 +51,7 @@ export async function activateCommand(
       force: options.force,
       ...(options.reason === undefined ? {} : { reason: options.reason }),
       operator: options.operator ?? context.operator,
+      configFingerprint,
       // Structured events go to stderr so they can be collected as an audit log.
       log: (event) => {
         context.stderr(`${JSON.stringify(event)}\n`);

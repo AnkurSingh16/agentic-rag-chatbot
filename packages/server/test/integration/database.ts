@@ -127,10 +127,14 @@ export async function createReadyVersion(
   });
 }
 
+/** The configuration fingerprint the test chat runs record and activation checks (migration 0010). */
+export const TEST_FINGERPRINT = 'f'.repeat(64);
+
 export interface ActivationArgs {
   force: boolean | null;
   reason: string | null;
   operator: string | null;
+  configFingerprint?: string | null;
 }
 
 // Forced by default so tests about pointers and isolation need no eval run; the eval gate has
@@ -145,14 +149,41 @@ export function activate(
 ): Promise<string | null> {
   return ingest(pool, instanceId, async (client) => {
     const result = await client.query<{ previous: string | null }>(
-      'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
-      [instanceId, versionId, args.force, args.reason, args.operator],
+      'SELECT rag.activate_index_version($1, $2, $3, $4, $5, $6) AS previous',
+      [
+        instanceId,
+        versionId,
+        args.force,
+        args.reason,
+        args.operator,
+        args.configFingerprint === undefined ? TEST_FINGERPRINT : args.configFingerprint,
+      ],
     );
     return result.rows[0]?.previous ?? null;
   });
 }
 
-/** Records an eval run for a version created by {@link createReadyVersion}. */
+/** Records one eval run of a single harness, so a test can make one harness fail on its own. */
+export function recordHarnessEval(
+  pool: pg.Pool,
+  instanceId: string,
+  versionId: string,
+  harness: 'retrieval' | 'chat',
+  passed: boolean,
+): Promise<void> {
+  return ingest(pool, instanceId, async (client) => {
+    await client.query(
+      `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed, metrics)
+       VALUES ($1, $2, 'mock', 'mock-384', $3, jsonb_build_object('harness', $4::text, 'configFingerprint', $5::text))`,
+      [instanceId, versionId, passed, harness, TEST_FINGERPRINT],
+    );
+  });
+}
+
+/**
+ * Records a retrieval and a chat eval run for a version created by {@link createReadyVersion}.
+ * Activation needs the latest run of each harness to pass (ADR 0009).
+ */
 export function recordEval(
   pool: pg.Pool,
   instanceId: string,
@@ -161,10 +192,12 @@ export function recordEval(
   model = 'mock-384',
 ): Promise<void> {
   return ingest(pool, instanceId, async (client) => {
-    await client.query(
-      `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed)
-       VALUES ($1, $2, 'mock', $3, $4)`,
-      [instanceId, versionId, model, passed],
-    );
+    for (const harness of ['retrieval', 'chat']) {
+      await client.query(
+        `INSERT INTO rag.eval_runs (instance_id, index_version_id, embedding_provider, embedding_model, passed, metrics)
+         VALUES ($1, $2, 'mock', $3, $4, jsonb_build_object('harness', $5::text, 'configFingerprint', $6::text))`,
+        [instanceId, versionId, model, passed, harness, TEST_FINGERPRINT],
+      );
+    }
   });
 }

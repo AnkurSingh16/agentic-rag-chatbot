@@ -17,8 +17,10 @@ Commands:
   init <id>                                      Create instances/<id> with a sample config, document and eval set
   train <id> [--source <folder>]                 Build a new index version from the instance's sources,
                                                  or from one folder instead of them
-  eval <id> [versionId] [--min-recall <0..1>]    Score retrieval on the eval set (default: newest version,
-                                                 minimum recall@8 0.6) and record the eval run
+  eval <id> [versionId] [--min-recall <0..1>] [--chat]
+                                                 Score retrieval on the eval set (default: newest version,
+                                                 minimum recall@8 0.6) and record the eval run. --chat also runs
+                                                 the end-to-end refusal check with Ollama (LLM_PROVIDER=ollama)
   versions <id> [--json]                         List index versions
   activate <id> <versionId> [--force --reason <text>] [--operator <name>]
                                                  Serve a version; requires a passing eval run unless forced.
@@ -85,11 +87,13 @@ async function dispatch(context: CliContext, command: string, rest: string[]): P
       const { values, positionals } = parse(rest, {
         ...COMMON,
         'min-recall': { type: 'string' },
+        chat: { type: 'boolean', default: false },
       });
       if (values.help) return false;
       await evalCommand(context, positionals, {
         instancesDir: values.instances,
         minRecall: values['min-recall'],
+        chat: values.chat,
       });
       return true;
     }
@@ -114,6 +118,7 @@ async function dispatch(context: CliContext, command: string, rest: string[]): P
         force: values.force,
         reason: values.reason,
         operator: values.operator,
+        instancesDir: values.instances,
       });
       return true;
     }

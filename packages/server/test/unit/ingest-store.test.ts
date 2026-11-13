@@ -210,22 +210,22 @@ describe('createPostgresIngestStore', () => {
 
   it('activates through the database function and returns the previous version', async () => {
     const { store, work } = storeWith(() => [{ previous: 'old' }]);
-    const forced = { force: true, reason: 'demo', operator: 'ankur' };
+    const forced = { force: true, reason: 'demo', operator: 'ankur', configFingerprint: null };
     expect(await store.activate('help', VERSION, forced)).toBe('old');
     expect(work()[0]).toEqual({
-      text: 'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
-      values: ['help', VERSION, true, 'demo', 'ankur'],
+      text: 'SELECT rag.activate_index_version($1, $2, $3, $4, $5, $6) AS previous',
+      values: ['help', VERSION, true, 'demo', 'ankur', null],
     });
     const none = storeWith(() => [{ previous: null }]);
-    const gated = { force: false, reason: undefined, operator: 'ankur' };
+    const gated = { force: false, reason: undefined, operator: 'ankur', configFingerprint: 'fp' };
     expect(await none.store.activate('help', VERSION, gated)).toBeNull();
-    expect(none.work()[0]?.values).toEqual(['help', VERSION, false, null, 'ankur']);
+    expect(none.work()[0]?.values).toEqual(['help', VERSION, false, null, 'ankur', 'fp']);
   });
 
   it('maps activation errors to not_found and invalid_input', async () => {
     const respond = (error: Error) => (text: string) =>
       text.includes('activate_index_version') ? error : [];
-    const request = { force: false, reason: undefined, operator: 'o' };
+    const request = { force: false, reason: undefined, operator: 'o', configFingerprint: 'fp' };
     const missing = storeWith(respond(databaseError('P0002', 'index version does not exist')));
     await expect(missing.store.activate('help', VERSION, request)).rejects.toMatchObject({
       code: 'not_found',

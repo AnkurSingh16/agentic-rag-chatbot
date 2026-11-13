@@ -42,6 +42,6 @@ Boot and the per-request version check (ADR 0002) fail on any dimension or model
 
 Architect B preferred an untyped `vector` column with partial `halfvec` HNSW indexes per dimension from the start, allowing 768- and 1024-dimension providers side by side and halving index memory. Deferred: no current consumer needs it, and the migration is straightforward when one does.
 
-## Amendment: minimum fused score
+## Amendment: minimum fused score, then vector admission
 
-I raised the minimum fused score from 0.0125 to 0.0165. A chunk found by one search alone scores at most 1 / 61, so the new value keeps only chunks that both searches found. The measurements, their limits and the trade-off for answerable recall are in [instance.yaml reference](../reference/instance-config.md#calibration-of-the-retrieval-threshold). The fusion itself and the candidate counts are unchanged.
+I raised the minimum fused score from 0.0125 to 0.0165. A chunk found by full-text search alone scores at most 1 / 61, so the floor drops it. The floor also dropped vector-only matches, which left answerable questions with no retrieval. [ADR 0009](0009-lexical-admission-for-hybrid-retrieval.md) admits vector candidates within `maxVectorDistance` (cosine distance 0.8) whatever their fused score. The fused score still orders the chunks. The measurements and their limits are in the [instance.yaml reference](../reference/instance-config.md#calibration-of-the-retrieval-threshold). The fusion itself and the candidate counts are unchanged.

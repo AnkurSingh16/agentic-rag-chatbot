@@ -88,6 +88,16 @@ describe('runRetrievalEval', () => {
       minUnanswerableEmptyRate: 0.5,
     });
     expect(lenient).toMatchObject({ passed: true, minUnanswerableEmptyRate: 0.5 });
+
+    // With the chat check deciding unanswerable questions, retrieval still reports them.
+    const diagnostic = await runRetrievalEval({
+      ...options,
+      evalSet,
+      retrieval: retrieving([['a.md'], ['x.md'], []]),
+      minRecall: 0.5,
+      gateUnanswerable: false,
+    });
+    expect(diagnostic).toMatchObject({ passed: true, unanswerableEmpty: 1, unanswerable: 2 });
   });
 
   it('fails an eval set with no scored questions', async () => {

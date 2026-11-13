@@ -276,8 +276,15 @@ export function createPostgresIngestStore(pool: { connect(): Promise<PooledClien
         return await inInstance(instanceId, async (client) => {
           // The function enforces the eval gate and writes rag.activation_log (migration 0007).
           const result = await client.query<{ previous: string | null }>(
-            'SELECT rag.activate_index_version($1, $2, $3, $4, $5) AS previous',
-            [instanceId, versionId, request.force, request.reason ?? null, request.operator],
+            'SELECT rag.activate_index_version($1, $2, $3, $4, $5, $6) AS previous',
+            [
+              instanceId,
+              versionId,
+              request.force,
+              request.reason ?? null,
+              request.operator,
+              request.configFingerprint,
+            ],
           );
           return result.rows[0]?.previous ?? null;
         });

@@ -3,7 +3,7 @@ import type { FallbackConfig, InstanceConfig } from '../config/schema.js';
 
 /** Instructions for the routing call. The route tool carries the decision. */
 export const ROUTE_RULES =
-  'Decide how to handle the latest user message by calling the route tool. Use knowledge for anything the documents described above might answer, and write search queries that stand on their own without the conversation.';
+  'Decide how to handle the latest user message by calling the route tool. The documents are the knowledge base for the subject in the instructions above. Use knowledge for any question about that subject, including its people, services, history, contact details and links, even when the words differ from the documents. Use out_of_scope only for questions that do not concern that subject. When unsure, use knowledge: the answer step checks the documents before anything is shown. Write search queries that stand on their own without the conversation.';
 
 /**
  * Instructions for the answer call. A model that cannot answer writes one sentence without a

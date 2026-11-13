@@ -11,7 +11,9 @@ import {
   ingest,
   ingestUrl,
   recordEval,
+  recordHarnessEval,
   rolePasswords,
+  TEST_FINGERPRINT,
   runtimeUrl,
   sqlState,
   uniqueInstanceId,
@@ -139,11 +141,12 @@ describe('index version activation', () => {
     const otherInstance = uniqueInstanceId('ver-ctx');
     const { versionId } = await createReadyVersion(ingestPool, otherInstance, page('Context', 4));
     const mismatched = ingest(ingestPool, instanceId, (client) =>
-      client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4)', [
+      client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4, $5)', [
         otherInstance,
         versionId,
         'r',
         'o',
+        TEST_FINGERPRINT,
       ]),
     );
     expect(sqlState(await failureOf(mismatched))).toBe('42501');
@@ -155,11 +158,12 @@ describe('index version activation', () => {
       runtime,
       { instanceId, tenantKey: '_', accessTags: ['public'] },
       (client) =>
-        client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4)', [
+        client.query('SELECT rag.activate_index_version($1, $2, true, $3, $4, $5)', [
           instanceId,
           active,
           'r',
           'o',
+          TEST_FINGERPRINT,
         ]),
     );
     expect(sqlState(await failureOf(attempt))).toBe('42501');
@@ -199,7 +203,7 @@ describe('eval gate on activation', () => {
 
   it('refuses a version without a passing eval run for its own embedding model', async () => {
     const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Gated', 6));
-    expect(await gateFailure(versionId)).toContain('has no eval run');
+    expect(await gateFailure(versionId)).toContain('has no retrieval eval run');
 
     await recordEval(ingestPool, gateInstance, versionId, false);
     expect(await gateFailure(versionId)).toContain('failed');
@@ -219,6 +223,30 @@ describe('eval gate on activation', () => {
     expect(await log()).toEqual([
       { index_version_id: versionId, forced: false, reason: null, operator: 'ankur' },
     ]);
+  });
+
+  it('refuses activation when only the chat run fails', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('ChatFails', 10));
+    await recordEval(ingestPool, gateInstance, versionId, true);
+    await recordHarnessEval(ingestPool, gateInstance, versionId, 'chat', false);
+    expect(await gateFailure(versionId)).toContain('latest chat eval run');
+    expect(await activeVersion()).not.toBe(versionId);
+  });
+
+  it('refuses activation when the chat run was made with another configuration', async () => {
+    const { versionId } = await createReadyVersion(ingestPool, gateInstance, page('Config', 12));
+    await recordEval(ingestPool, gateInstance, versionId, true);
+    const stale = await failureOf(
+      activate(ingestPool, gateInstance, versionId, {
+        ...gated,
+        configFingerprint: 'e'.repeat(64),
+      }),
+    );
+    expect(sqlState(stale)).toBe('55000');
+    expect((stale as Error).message).toContain('different instance configuration');
+    expect(await activeVersion()).not.toBe(versionId);
+    await activate(ingestPool, gateInstance, versionId, gated);
+    expect(await activeVersion()).toBe(versionId);
   });
 
   it('judges only the latest eval run', async () => {

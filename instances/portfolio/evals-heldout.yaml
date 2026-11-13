@@ -1,0 +1,45 @@
+# Held-out unanswerable questions for the portfolio instance, written before any tuning of the
+# coverage rule. Used once to measure the candidate in ADR 0009; it is no longer held out.
+questions:
+  - id: h-availability-clients
+    question: Is Ankur taking on new clients this quarter?
+    answerable: false
+  - id: h-relocation
+    question: Would Ankur relocate to Melbourne?
+    answerable: false
+  - id: h-visa
+    question: What is Ankur's visa status?
+    answerable: false
+  - id: h-licence
+    question: Does Ankur have a driving licence?
+    answerable: false
+  - id: h-language
+    question: What is Ankur's favourite programming language?
+    answerable: false
+  - id: h-world-cup
+    question: Who won the 2030 World Cup?
+    answerable: false
+  - id: h-calories
+    question: How many calories are in a banana?
+    answerable: false
+  - id: h-hiking
+    question: Can you recommend a good hiking trail near Sydney?
+    answerable: false
+  - id: h-japanese
+    question: What is the best way to learn Japanese?
+    answerable: false
+  - id: h-current-job
+    question: Is Ankur currently working at a company?
+    answerable: false
+  - id: h-notice
+    question: What notice period does Ankur need?
+    answerable: false
+  - id: h-head-role
+    question: Is Ankur looking for a Head of Engineering role?
+    answerable: false
+  - id: h-salary
+    question: What is Ankur's current base salary?
+    answerable: false
+  - id: h-hourly-rate
+    question: How much does Ankur charge per hour for consulting?
+    answerable: false

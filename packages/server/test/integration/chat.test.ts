@@ -28,6 +28,8 @@ const demoDir = fileURLToPath(new URL('../../../../instances/demo/', import.meta
 const runtime = createPool(runtimeUrl, 4);
 const ingestPool = createPool(ingestUrl);
 const embeddings = createMockEmbeddingProvider();
+// The demo eval run and its activation use the same configuration fingerprint (migration 0010).
+const FINGERPRINT = 'c'.repeat(64);
 const instanceId = uniqueInstanceId('chat');
 let config: InstanceConfig;
 let versionId: string;
@@ -88,6 +90,8 @@ describe('hybrid retrieval', () => {
       embeddings,
       retrieval: createPostgresRetrievalStore(ingestPool),
       signal: new AbortController().signal,
+      // The chat refusal check decides unanswerable questions (ADR 0009), so this run is diagnostic.
+      gateUnanswerable: false,
     });
     expect(result.recallAt8).toBeGreaterThanOrEqual(0.6);
     expect(result.passed).toBe(true);
@@ -96,9 +100,22 @@ describe('hybrid retrieval', () => {
       embeddingProvider: embeddings.provider,
       embeddingModel: embeddings.model,
       passed: result.passed,
-      metrics: { recallAt8: result.recallAt8 },
+      metrics: { harness: 'retrieval', recallAt8: result.recallAt8 },
     });
-    await activateVersion({ store, instanceId, versionId, operator: 'test', log: () => undefined });
+    await store.recordEvalRun(instanceId, versionId, {
+      embeddingProvider: embeddings.provider,
+      embeddingModel: embeddings.model,
+      passed: true,
+      metrics: { harness: 'chat', recallAt8: result.recallAt8, configFingerprint: FINGERPRINT },
+    });
+    await activateVersion({
+      store,
+      instanceId,
+      versionId,
+      operator: 'test',
+      configFingerprint: FINGERPRINT,
+      log: () => undefined,
+    });
     expect(await createPostgresRetrievalStore(runtime).activeVersion(access())).toEqual({
       id: versionId,
       embeddingProvider: 'mock',
@@ -115,8 +132,8 @@ describe('hybrid retrieval', () => {
     expect((await search('edited two devices conflict'))[0]?.sourceUri).toBe('data/sync.md');
   });
 
-  it('drops a paraphrase that only the vector search finds (minFusedScore, ADR 0006)', async () => {
-    expect(await search('How long does it take for changes to sync?')).toEqual([]);
+  it('admits a paraphrase that only the vector search finds, within the distance cap (ADR 0009)', async () => {
+    expect((await search('How long does it take for changes to sync?')).length).toBeGreaterThan(0);
   });
 
   it('returns nothing for unrelated text, other tags or another instance', async () => {

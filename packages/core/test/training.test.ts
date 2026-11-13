@@ -402,6 +402,7 @@ describe('train', () => {
           force: true,
           reason: 'test',
           operator: 'tester',
+          configFingerprint: null,
         });
       }
       if (i === 4) expect(result.prunedVersions).toEqual([ids[1]]);
