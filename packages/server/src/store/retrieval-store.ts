@@ -20,7 +20,7 @@ interface ChunkRow {
 
 // Hybrid search from ADR 0006 in one statement: full-text and vector candidates, fused with
 // Reciprocal Rank Fusion. Row-level security limits both CTEs to chunks the caller may read; the
-// explicit instance and version filters let the planner use the scope index. The fused floor drops
+// explicit instance and version filters narrow the scope before the vector sort. The fused floor drops
 // full-text-only matches; vector candidates within maxVectorDistance are kept whatever their score
 // (ADR 0009).
 const SEARCH_SQL = `
@@ -31,13 +31,20 @@ WITH fts AS (
   ORDER BY rank
   LIMIT $5
 ),
+scope AS MATERIALIZED (
+  SELECT c.id, c.embedding
+  FROM rag.chunks c
+  WHERE c.instance_id = $1 AND c.index_version_id = $2
+),
+-- An exact sort over the visible scope, not an HNSW scan: the approximate index returns a fixed
+-- candidate pool before row-level security filters it, so a small instance in a shared table can
+-- get no candidates at all (ADR 0009 amendment). MATERIALIZED keeps the scope a plain scan.
 vec AS (
   SELECT id, row_number() OVER (ORDER BY distance, id) AS rank
   FROM (
-    SELECT c.id, c.embedding <=> $4::vector AS distance
-    FROM rag.chunks c
-    WHERE c.instance_id = $1 AND c.index_version_id = $2
-    ORDER BY c.embedding <=> $4::vector
+    SELECT s.id, s.embedding <=> $4::vector AS distance
+    FROM scope s
+    ORDER BY distance, s.id
     LIMIT $5
   ) nearest
   WHERE distance <= $6

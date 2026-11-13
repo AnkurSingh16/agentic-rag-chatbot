@@ -173,23 +173,19 @@ describe('corpus row-level security', () => {
     }
   });
 
-  it('finds the nearest chunk through the HNSW index without crossing instances or tenants', async () => {
+  it('finds the nearest visible chunk by exact search, without crossing instances or tenants', async () => {
+    // The same shape as the retrieval store: the caller's scope is materialized, then sorted by
+    // distance, so row-level security decides the candidates and the approximate index is not used.
     const nearest = (access: InstanceAccess, axis: number) =>
       withInstanceTransaction(runtime, access, async (client) => {
-        // A tiny table is cheaper to sort than to walk the graph; these make the planner use the
-        // HNSW index so the test proves RLS filtering on its results.
-        await client.query('SET LOCAL enable_seqscan = off');
-        await client.query('SET LOCAL enable_sort = off');
-        const sql = `SELECT id, content FROM rag.chunks WHERE index_version_id = $1
-                     ORDER BY embedding <=> $2::vector LIMIT 1`;
-        const plan = await client.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`, [
-          versionA,
-          axisVector(axis),
-        ]);
-        const rows = await client.query<{ id: string; content: string }>(sql, [
-          versionA,
-          axisVector(axis),
-        ]);
+        const sql = `WITH scope AS MATERIALIZED (
+                       SELECT id, content, embedding FROM rag.chunks
+                       WHERE instance_id = $1 AND index_version_id = $2
+                     )
+                     SELECT id, content FROM scope ORDER BY embedding <=> $3::vector LIMIT 1`;
+        const params = [access.instanceId, versionA, axisVector(axis)];
+        const plan = await client.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`, params);
+        const rows = await client.query<{ id: string; content: string }>(sql, params);
         return { plan: plan.rows.map((row) => row['QUERY PLAN']).join('\n'), row: rows.rows[0] };
       });
 
@@ -197,7 +193,7 @@ describe('corpus row-level security', () => {
       { instanceId: instanceA, tenantKey: '_', accessTags: ['public'] },
       5,
     );
-    expect(publicA.plan).toContain('chunks_embedding_hnsw');
+    expect(publicA.plan).not.toContain('chunks_embedding_hnsw');
     expect(publicA.row).toEqual({ id: chunksA.public, content: 'Public welcome page' });
 
     // The query vector is the south chunk's own embedding; a north reader still gets a north chunk.

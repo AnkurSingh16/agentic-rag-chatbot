@@ -34,7 +34,7 @@ Boot and the per-request version check (ADR 0002) fail on any dimension or model
 
 ## Consequences
 
-- CI compares HNSW results with an exact scan for a narrow-tag user and fails if recall@8 drops below 0.95 on the eval corpus.
+- The HNSW comparison with an exact scan described here is superseded by the amendment below: retrieval no longer uses the HNSW index.
 - `nomic-embed-text` (768 dims) is not supported until mixed dimensions are.
 - Retrieval quality is measured per instance with recall@k, MRR, citation validity and correct refusals (phase 3).
 
@@ -45,3 +45,7 @@ Architect B preferred an untyped `vector` column with partial `halfvec` HNSW ind
 ## Amendment: minimum fused score, then vector admission
 
 I raised the minimum fused score from 0.0125 to 0.0165. A chunk found by full-text search alone scores at most 1 / 61, so the floor drops it. The floor also dropped vector-only matches, which left answerable questions with no retrieval. [ADR 0009](0009-lexical-admission-for-hybrid-retrieval.md) admits vector candidates within `maxVectorDistance` (cosine distance 0.8) whatever their fused score. The fused score still orders the chunks. The measurements and their limits are in the [instance.yaml reference](../reference/instance-config.md#calibration-of-the-retrieval-threshold). The fusion itself and the candidate counts are unchanged.
+
+## Amendment: exact search over the visible scope
+
+The vector candidates are now an exact sort over the caller's visible chunks (a materialized scope CTE, then `ORDER BY distance`), not an HNSW scan. The HNSW scan returns a fixed candidate pool before row-level security removes rows, so a small instance in a shared table could get no candidates at all. The measurement and the cost are in [ADR 0009](0009-lexical-admission-for-hybrid-retrieval.md). The HNSW index stays in the schema for a later partitioned design, but retrieval does not use it. The cost of an exact sort grows with the visible scope, so this design must be revisited when a version is large enough to measure a latency problem.
