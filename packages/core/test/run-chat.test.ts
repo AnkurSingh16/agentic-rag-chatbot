@@ -432,6 +432,14 @@ describe('guards', () => {
     expect(
       checkParagraph('The roadmap page lists pricing for plans. [c00000a]', known, policy),
     ).toMatchObject({ ok: true });
+    // A plural in the answer matches its singular in the source, so a correct paragraph is not refused.
+    expect(
+      checkParagraph(
+        'Mentoring sessions have listed prices. [c00000a]',
+        new Map([['c00000a', 'Mentoring session prices are listed.']]),
+        policy,
+      ),
+    ).toMatchObject({ ok: true });
   });
 
   it('keeps the newest history and the ranked chunks that fit their budgets', () => {

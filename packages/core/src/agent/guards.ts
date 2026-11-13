@@ -98,10 +98,18 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   'your',
 ]);
 
+/**
+ * Drops a plural 's' so that 'sessions' and 'session' count as one word. This is not stemming
+ * beyond that: a paraphrase still needs its own words in the source.
+ */
+function singular(word: string): string {
+  return word.length > 4 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+}
+
 function contentWords(text: string): string[] {
-  return words(text.replace(CITATION, ' ')).filter(
-    (word) => word.length >= 4 && !STOPWORDS.has(word),
-  );
+  return words(text.replace(CITATION, ' '))
+    .filter((word) => word.length >= 4 && !STOPWORDS.has(word))
+    .map(singular);
 }
 
 export type ParagraphCheck =
