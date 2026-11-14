@@ -263,6 +263,10 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
               </li>
             ))}
           </ol>
+          <p className="chat-disclaimer">
+            This is an AI assistant and can make mistakes. Check important details against the
+            sources.
+          </p>
           <form className="chat-form" onSubmit={(event) => void onSubmit(event)}>
             <input
               aria-label="Message"

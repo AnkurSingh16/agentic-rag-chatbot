@@ -14,7 +14,7 @@ import { createPostgresIngestStore } from '../../src/store/ingest-store.js';
 import { migrate } from '../../src/store/migrate.js';
 import { withInstanceTransaction } from '../../src/store/transaction.js';
 import { adminUrl, createPool, ingestUrl, rolePasswords, runtimeUrl } from './database.js';
-import { uniqueInstanceId } from './database.js';
+import { TEST_FINGERPRINT, uniqueInstanceId } from './database.js';
 
 const runtime = createPool(runtimeUrl);
 const ingestPool = createPool(ingestUrl);
@@ -102,12 +102,14 @@ function run(loaded: LoadedInstanceConfig, dir: string, embeddings = countingEmb
 }
 
 async function passEval(instanceId: string, versionId: string): Promise<void> {
-  await store.recordEvalRun(instanceId, versionId, {
-    embeddingProvider: 'mock',
-    embeddingModel: 'mock-hash-v1',
-    passed: true,
-    metrics: { recallAt8: 1 },
-  });
+  for (const harness of ['retrieval', 'chat'] as const) {
+    await store.recordEvalRun(instanceId, versionId, {
+      embeddingProvider: 'mock',
+      embeddingModel: 'mock-hash-v1',
+      passed: true,
+      metrics: { harness, recallAt8: 1, configFingerprint: TEST_FINGERPRINT },
+    });
+  }
 }
 
 function activate(instanceId: string, versionId: string) {
@@ -116,6 +118,7 @@ function activate(instanceId: string, versionId: string) {
     instanceId,
     versionId,
     operator: 'integration-test',
+    configFingerprint: TEST_FINGERPRINT,
     log: () => undefined,
   });
 }
@@ -166,6 +169,7 @@ describe('training against PostgreSQL', () => {
       force: false,
       reason: undefined,
       operator: 'x',
+      configFingerprint: TEST_FINGERPRINT,
     });
     await expect(bypass).rejects.toMatchObject({ code: 'invalid_input' });
     await expect(bypass).rejects.toThrow(/eval gate/);

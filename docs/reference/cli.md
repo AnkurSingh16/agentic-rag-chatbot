@@ -10,14 +10,14 @@ Run it from the repository root. It reads `.env` from the current directory if t
 
 ## Commands
 
-| Command                                                                   | What it does                                                                           |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `migrate [--allow-remote]`                                                | Apply database migrations                                                              |
-| `init <id>`                                                               | Create `instances/<id>` with a sample config, document and eval set                    |
-| `train <id> [--source <folder>]`                                          | Build a new index version from the instance's sources, or from one folder              |
-| `eval <id> [versionId] [--min-recall <0..1>]`                             | Score retrieval on the instance's eval set and record an eval run                      |
-| `versions <id> [--json]`                                                  | List index versions                                                                    |
-| `activate <id> <versionId> [--force --reason <text>] [--operator <name>]` | Serve a version; requires a passing eval run unless forced. Every activation is logged |
+| Command                                                                   | What it does                                                                                             |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `migrate [--allow-remote]`                                                | Apply database migrations                                                                                |
+| `init <id>`                                                               | Create `instances/<id>` with a sample config, document and eval set                                      |
+| `train <id> [--source <folder>]`                                          | Build a new index version from the instance's sources, or from one folder                                |
+| `eval <id> [versionId] [--min-recall <0..1>]`                             | Score retrieval on the instance's eval set and record an eval run                                        |
+| `versions <id> [--json]`                                                  | List index versions                                                                                      |
+| `activate <id> <versionId> [--force --reason <text>] [--operator <name>]` | Serve a version; requires passing retrieval and chat eval runs unless forced. Every activation is logged |
 
 `<id>` must match `^[a-z][a-z0-9-]{1,39}$` and, for `train` and `eval`, equal the `id` in `instances/<id>/instance.yaml`.
 
@@ -35,7 +35,7 @@ Run it from the repository root. It reads `.env` from the current directory if t
 | `--reason <text>`   | `activate`           | Why the gate is skipped, at most 1,000 characters. Only accepted together with `--force`.                                                                     |
 | `--operator <name>` | `activate`           | Who is activating, 1 to 128 characters. Default: the `USER` environment variable, or the OS user name when `USER` is not set.                                 |
 
-`versions` and `activate` accept `--instances` but do not read the instance folder. `migrate` accepts only `--allow-remote` and `--help`. Unknown options and unknown commands print an error and the usage text, and exit 1.
+`versions` accepts `--instances` but does not read the instance folder. `activate` reads the instance folder unless `--force` is given, to compare the configuration with the latest chat eval run. `migrate` accepts only `--allow-remote` and `--help`. Unknown options and unknown commands print an error and the usage text, and exit 1.
 
 ### migrate
 
@@ -59,7 +59,7 @@ Chunks already in the instance's embedding cache are reused. After a successful 
 
 ### eval
 
-Scores retrieval for one version against the instance's `evalSet` and records the result in `rag.eval_runs`, which the activation gate reads. Without `versionId` it uses the newest version that is not `building`. Retrieval runs as `rag_ingest` with the same hybrid query the server uses (ADR 0006); no chat model is called.
+Scores retrieval for one version against the instance's `evalSet` and records the result in `rag.eval_runs`, which the activation gate reads. With `--chat`, it also runs the end-to-end refusal check for unanswerable questions: each question goes through a full chat turn three times with Ollama at temperature 0 and seed 1, and passes only if every unanswerable run is refused and answerable questions are answered with a citation on at least 80% of their runs. It needs `LLM_PROVIDER=ollama` and records a separate `chat` run with the model digest. Activation requires the latest retrieval run and the latest chat run to pass (migration 0009). Without `versionId` it uses the newest version that is not `building`. Retrieval runs as `rag_runtime` (`DATABASE_URL`) with public access, so the eval reads the version through the same row-level policies as a public visitor. Recording the run uses `rag_ingest`. Only `public` instances can be evaluated for now; other modes are refused until per-role eval profiles exist. No chat model is called.
 
 - Answerable questions with `sources` score recall@8: the share of their expected source URIs found among the top 8 chunks. The version passes when the mean reaches `--min-recall` (default 0.6).
 - Unanswerable questions should retrieve nothing above the minimum score. They are counted and shown but do not decide the result, because a query that shares words with the documents can still pass the score threshold.
@@ -82,7 +82,7 @@ Lists the instance's versions, newest first, with columns `VERSION`, `STATUS`, `
 
 ### activate
 
-Makes a `ready` version active, or a `retired` one again to roll back. The previous active version becomes `retired`. Without `--force`, the version's latest eval run must have passed with the version's own embedding provider and model. The database enforces the same gate ([ADR 0002](../adr/0002-instances-and-index-versions.md)), and records every activation in `rag.activation_log` with the operator and reason.
+Makes a `ready` version active, or a `retired` one again to roll back. The previous active version becomes `retired`. Without `--force`, the latest retrieval run and the latest chat run must both have passed, each with the version's own embedding provider and model. The chat run must also have been made with the current instance configuration: `activate` computes a fingerprint of the persona, forbidden topics, verification judge, limits, model names and the route, answer and judge prompts from `instances/<id>/instance.yaml`, and the database refuses a chat run whose fingerprint differs (migration 0010). Change the configuration and the chat check has to be run again. A version with no chat run cannot be activated without `--force`, even if its retrieval run passed. The database enforces the same gate ([ADR 0002](../adr/0002-instances-and-index-versions.md)), and records every activation in `rag.activation_log` with the operator and reason.
 
 On success it prints `Activated <versionId> for <id>. Previous: <versionId> (now retired).` (or `Previous: none.`), with ` without the eval gate` after the instance id when forced. It also writes JSON events to stderr: `index.activation_forced` (operator, reason, and `gate`: why the gate failed, or `passed`) before a forced activation, and `index.activated` (previous version, `forced`, operator) after every activation.
 
@@ -91,6 +91,7 @@ On success it prints `Activated <versionId> for <id>. Previous: <versionId> (now
 | Variable                                      | Used by                                 | Meaning                                                                                                         |
 | --------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_INGEST_URL`                         | `train`, `eval`, `versions`, `activate` | Connection URL for the `rag_ingest` role                                                                        |
+| `DATABASE_URL`                                | `eval`                                  | Connection URL for the `rag_runtime` role; eval retrieval runs under it                                         |
 | `DATABASE_ADMIN_URL`                          | `migrate`                               | Administrator connection URL                                                                                    |
 | `RAG_RUNTIME_PASSWORD`, `RAG_INGEST_PASSWORD` | `migrate`                               | Passwords for roles the runner creates                                                                          |
 | `EMBEDDING_PROVIDER`                          | `train`, `eval`                         | Optional. `local` or `mock`; overrides the instance's `embedding.provider`, with that provider's default model. |

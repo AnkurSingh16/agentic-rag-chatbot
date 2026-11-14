@@ -82,6 +82,13 @@
 }
 
 .chat-pending,
+.chat-disclaimer {
+  margin: 0;
+  padding: 0 0.75rem 0.5rem;
+  color: #59636e;
+  font-size: 0.75rem;
+}
+
 .chat-note {
   margin: 0.25rem 0 0;
   color: #59636e;

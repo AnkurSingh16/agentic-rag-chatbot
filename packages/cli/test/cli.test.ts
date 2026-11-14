@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadInstanceConfig, parseEvalSet } from '@agentic-rag/core';
+import {
+  chatConfigFingerprint,
+  loadInstanceConfig,
+  parseEvalSet,
+  resolveChatModels,
+} from '@agentic-rag/core';
 import type { MigrateCliConfig } from '@agentic-rag/server';
 import { USAGE, run } from '../src/cli.js';
 import type { CliContext } from '../src/context.js';
@@ -44,6 +49,7 @@ async function harness(
     context: {
       env: {
         DATABASE_INGEST_URL: 'postgres://rag_ingest:pw@127.0.0.1/rag',
+        DATABASE_URL: 'postgres://rag_runtime:pw@127.0.0.1/rag',
         EMBEDDING_PROVIDER: 'mock',
         ...env,
       },
@@ -314,7 +320,9 @@ describe('ragctl eval', () => {
     expect(h.out()).toMatch(/opening-hours +answer +1\.00 +yes +data\/welcome\.md/);
     expect(h.out()).toContain('recall@8 1.00 (minimum 0.60)');
     expect(h.out()).toContain('Eval passed.');
-    expect(await run(['activate', 'help', version?.id ?? ''], h.context)).toBe(0);
+    // A retrieval run alone does not unlock activation; the chat run is required too (ADR 0009).
+    expect(await run(['activate', 'help', version?.id ?? ''], h.context)).toBe(1);
+    expect(h.err()).toContain('has no chat eval run');
   });
 
   it('records a failing run and exits with 1 when recall is below the minimum', async () => {
@@ -329,6 +337,15 @@ describe('ragctl eval', () => {
     expect(h.store.versions[0]?.evals[0]).toMatchObject({ passed: false });
     expect(h.out()).toContain('recall@8 0.00 (minimum 0.50)');
     expect(h.err()).toContain(`Eval failed for ${versionId}`);
+  });
+
+  it('scores through the rag_runtime URL and records the run through rag_ingest', async () => {
+    const h = await trained();
+    const closedBefore = h.closed;
+    expect(await run(['eval', 'help'], h.context)).toBe(0);
+    expect(h.opened).toContain('postgres://rag_runtime:pw@127.0.0.1/rag');
+    expect(h.opened).toContain('postgres://rag_ingest:pw@127.0.0.1/rag');
+    expect(h.closed - closedBefore).toBe(2);
   });
 
   it('refuses bad options, missing versions, other embedding models and missing eval sets', async () => {
@@ -358,8 +375,19 @@ describe('ragctl eval', () => {
 });
 
 describe('ragctl activate', () => {
+  // The chat gate needs the fingerprint of the instance folder, so activation reads it (ADR 0009).
+  async function scaffold(h: Harness): Promise<void> {
+    expect(await run(['init', 'help'], h.context)).toBe(0);
+  }
+  async function chatFingerprint(h: Harness): Promise<string> {
+    const path = join(h.context.cwd, 'instances', 'help', 'instance.yaml');
+    const { config } = loadInstanceConfig(await readFile(path, 'utf8'), h.context.env);
+    return chatConfigFingerprint(config, resolveChatModels(config, h.context.env));
+  }
+
   it('refuses a version without a passing eval run and leaves it unchanged', async () => {
     const h = await harness();
+    await scaffold(h);
     const id = await readyVersion(h.store);
     expect(await run(['activate', 'help', id], h.context)).toBe(1);
     expect(h.err()).toContain('cannot be activated: it has no eval run');
@@ -368,13 +396,17 @@ describe('ragctl activate', () => {
 
   it('activates a version that passed its eval with the same embedding model', async () => {
     const h = await harness();
+    await scaffold(h);
     const id = await readyVersion(h.store);
-    await h.store.recordEvalRun('help', id, {
-      embeddingProvider: 'mock',
-      embeddingModel: 'mock-hash-v1',
-      passed: true,
-      metrics: {},
-    });
+    const fingerprint = await chatFingerprint(h);
+    for (const harness of ['retrieval', 'chat']) {
+      await h.store.recordEvalRun('help', id, {
+        embeddingProvider: 'mock',
+        embeddingModel: 'mock-hash-v1',
+        passed: true,
+        metrics: harness === 'chat' ? { harness, configFingerprint: fingerprint } : { harness },
+      });
+    }
     expect(await run(['activate', 'help', id], h.context)).toBe(0);
     expect(h.out()).toContain(`Activated ${id} for help. Previous: none.`);
     expect(h.store.versions[0]?.status).toBe('active');
@@ -434,8 +466,29 @@ describe('ragctl activate', () => {
     expect(h.store.versions[0]?.status).toBe('ready');
   });
 
+  it('refuses activation after the instance configuration changed since the chat run', async () => {
+    const h = await harness();
+    await scaffold(h);
+    const id = await readyVersion(h.store);
+    const fingerprint = await chatFingerprint(h);
+    for (const harness of ['retrieval', 'chat']) {
+      await h.store.recordEvalRun('help', id, {
+        embeddingProvider: 'mock',
+        embeddingModel: 'mock-hash-v1',
+        passed: true,
+        metrics: harness === 'chat' ? { harness, configFingerprint: fingerprint } : { harness },
+      });
+    }
+    const path = join(h.context.cwd, 'instances', 'help', 'instance.yaml');
+    await writeFile(path, `${await readFile(path, 'utf8')}verification:\n  judge: true\n`);
+    expect(await run(['activate', 'help', id], h.context)).toBe(1);
+    expect(h.err()).toContain('different instance configuration');
+    expect(h.store.versions[0]?.status).toBe('ready');
+  });
+
   it('reports an unknown version as a user error', async () => {
     const h = await harness();
+    await scaffold(h);
     expect(await run(['activate', 'help', 'not-a-version'], h.context)).toBe(1);
     expect(h.err()).toContain('does not exist for "help"');
   });

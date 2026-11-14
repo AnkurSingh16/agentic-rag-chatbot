@@ -61,6 +61,11 @@ export interface ActivationRequest {
   force: boolean;
   reason: string | undefined;
   operator: string;
+  /**
+   * The fingerprint of the instance configuration now in force (chatConfigFingerprint). The store
+   * requires the latest chat eval run to carry the same fingerprint unless `force` is set (ADR 0009).
+   */
+  configFingerprint: string | null;
 }
 
 export interface NewEvalRun {

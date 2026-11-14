@@ -11,9 +11,9 @@ export const RETRIEVAL = {
   /** Chunks on the verification retry (ADR 0005). */
   retryLimit: 16,
   /**
-   * Fused scores below this are dropped. A chunk found by only one search scores at most
-   * 1 / (60 + 1) = 0.01639, so this keeps only chunks that both searches found (see ADR 0006's amendment and
-   * docs/reference/instance-config.md). Calibrated on the demo eval set with all-MiniLM-L6-v2.
+   * Full-text-only matches score at most 1 / (60 + 1) = 0.01639 and are dropped by this floor.
+   * Vector candidates within `maxVectorDistance` are kept whatever their score (ADR 0009). See
+   * docs/reference/instance-config.md for the calibration.
    */
   minFusedScore: 0.0165,
   /**

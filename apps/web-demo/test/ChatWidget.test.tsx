@@ -147,4 +147,10 @@ describe('ChatWidget', () => {
     await send('three');
     expect(await screen.findByText(/unavailable right now/)).toBeTruthy();
   });
+
+  it('shows an AI disclaimer for the whole session once the chat is open', () => {
+    render(<ChatWidget apiUrl="https://api.example.test" instanceId="help" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByText(/AI assistant and can make mistakes/)).toBeTruthy();
+  });
 });

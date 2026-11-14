@@ -41,7 +41,7 @@ flowchart LR
 - Retrieved text is wrapped as untrusted data in the prompt and never treated as instructions.
 - pino redaction removes message text, tokens and PII fields from logs.
 
-**Budgets per turn:** 6 graph steps, 3 model calls, 24,000 input tokens, 1,024 output tokens and a 30-second deadline that includes the retry. One `AbortController` per request, aborted when the client disconnects.
+**Budgets per turn:** 6 graph steps, 3 model calls (route, answer and one retry), 24,000 input tokens, 1,024 output tokens and a 30-second deadline that includes the retry. One `AbortController` per request, aborted when the client disconnects.
 
 **Streaming.** SSE over a `POST` response. Paragraphs are buffered as they generate. Each paragraph is released only after it passes both the verifier checks and the `guard_out` checks (canary, forbidden topics), so unverified or blocked text never reaches the client. Events:
 
@@ -80,7 +80,10 @@ Budgets: input is estimated as characters ÷ 4 and capped at 8,000 tokens per ca
 Not implemented yet:
 
 - **Canary.** A per-request canary in the system prompt would change the cached system block on every request and defeat prompt caching (ADR 0008). The alternative to evaluate is a static canary per instance, stored server-side and kept in the cached block.
-- **Lexical-overlap threshold in `verify`** between a paragraph and its cited chunks.
 - **`guard_in` injection-pattern flagging and PII detection** for log redaction.
+
+Implemented since the first version (amendment, portfolio work): **lexical-overlap threshold in `verify`**. A paragraph is released only when at least half of its content words (words of four or more letters, not on a short stopword list, with citation markers removed) also appear in the chunks it cites (`LEXICAL_OVERLAP_MIN` in `packages/core/src/agent/guards.ts`). It is a floor against paragraphs that cite a chunk but talk about something else. It is not an entailment check, and it does not catch a paragraph whose words happen to appear in the source. On the demo, the answers from qwen2.5:7b are identical with the floor at 0.5 and at 0 (disabled), so the check changed no outcome there; the demo does not test it on fabricated answers.
+
+Implemented as an opt-in judge (`verification.judge`, default off). When it is on, paragraphs are held until the answer has streamed, and the chat model then answers YES or NO for each paragraph against its cited chunks. Anything other than a clear YES drops the paragraph (`unsupported_claim`). It allows at most three judge calls per attempt. A retry gets its own three, so a turn can make up to six. Judge calls are counted separately from the three model calls, are not checked against the per-call input cap, and send each paragraph with its cited chunks. The judge fails closed. It catches claims inferred from a source, which the lexical floor cannot. It also drops some correct paragraphs: on the demo one correct answer was dropped, and on the portfolio one correct answer was dropped and another was kept, in single runs at temperature 0.2 (ADR 0009, round 6). The judge is a model check and not an entailment proof.
 
 Rule: **no instance is exposed publicly until these controls are implemented; tracked in #22.**

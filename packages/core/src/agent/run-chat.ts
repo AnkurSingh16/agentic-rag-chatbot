@@ -8,15 +8,28 @@ import { ZERO_USAGE, addUsage } from '../llm/types.js';
 import type { ChatMessage, ChatModel, ChatRequest, ChatTool, TokenUsage } from '../llm/types.js';
 import type { EmbeddingProvider } from '../providers/types.js';
 import { RETRIEVAL } from '../retrieval/types.js';
-import type { RetrievalAccess, RetrievalStore, RetrievedChunk } from '../retrieval/types.js';
+import type {
+  ActiveIndexVersion,
+  RetrievalAccess,
+  RetrievalStore,
+  RetrievedChunk,
+} from '../retrieval/types.js';
 import type { ChatEvent, FinalState } from './events.js';
 import { checkParagraph, guardInput, instructionShingles } from './guards.js';
 import type { OutputPolicy, ParagraphFailure } from './guards.js';
-import { ANSWER_RULES, ROUTE_RULES, answerSystem, fallbackText, routeSystem } from './prompts.js';
+import {
+  ANSWER_RULES,
+  JUDGE_SYSTEM,
+  ROUTE_RULES,
+  answerSystem,
+  fallbackText,
+  routeSystem,
+} from './prompts.js';
 
 /**
  * Per-turn budgets from ADR 0005. Input is estimated as characters ÷ 4 and capped per call, so
- * three calls stay within 24,000 input tokens per turn.
+ * three calls stay within 24,000 input tokens per turn. Judge calls (verification.judge) are
+ * outside this budget and capped at JUDGE_MAX_CALLS.
  */
 export const TURN_BUDGET = {
   modelCalls: 3,
@@ -27,6 +40,10 @@ export const TURN_BUDGET = {
 } as const;
 
 const MAX_QUERIES = 3;
+/** Judge calls per turn: one per paragraph of an answer, at most this many (ADR 0005). */
+const JUDGE_MAX_CALLS = 3;
+const JUDGE_OUTPUT_TOKENS = 4;
+
 const EXCERPT_CHARS = 240;
 
 const ROUTE_TOOL: ChatTool = {
@@ -60,7 +77,7 @@ const routeSchema = z.object({
 type Route = z.infer<typeof routeSchema>;
 
 export interface ModelCallRecord {
-  node: 'route' | 'answer';
+  node: 'route' | 'answer' | 'judge';
   provider: string;
   model: string;
   usage: TokenUsage;
@@ -83,6 +100,11 @@ export interface RunChatOptions {
   /** Called after every model call, for usage logging and budgets (ADR 0008). */
   onModelCall?: (call: ModelCallRecord) => Promise<void> | void;
   deadlineMs?: number;
+  /**
+   * Scores a specific version instead of the active one. Only the eval harness sets it, after it
+   * has checked the version belongs to the instance (ADR 0002). Chat never sets it.
+   */
+  version?: ActiveIndexVersion;
 }
 
 export interface ChatOutcome {
@@ -156,6 +178,7 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
   ]);
   let usage: TokenUsage = { ...ZERO_USAGE };
   let modelCalls = 0;
+  let judgeCalls = 0;
 
   const message = guardInput(options.message);
   const messages: ChatMessage[] = [
@@ -173,7 +196,7 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
     ]),
   };
 
-  const version = await retrieval.activeVersion(access);
+  const version = options.version ?? (await retrieval.activeVersion(access));
   if (version === undefined) {
     throw new ChatbotError('not_found', `Instance "${config.id}" has no active index version`);
   }
@@ -237,6 +260,41 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
     return toolInput;
   }
 
+  /**
+   * Asks the chat model whether a paragraph states only what its cited documents say. Anything
+   * other than a clear YES is a failure, and so is going over the judge budget.
+   */
+  async function judgeParagraph(
+    paragraph: string,
+    cited: { citationId: string; title: string; text: string }[],
+  ): Promise<boolean> {
+    judgeCalls += 1;
+    if (judgeCalls > JUDGE_MAX_CALLS) return false;
+    let verdict = '';
+    let callUsage: TokenUsage | undefined;
+    for await (const event of options.chatModel.generate({
+      model: options.models.chat,
+      system: JUDGE_SYSTEM,
+      context: formatContext(cited),
+      messages: [{ role: 'user', content: `Paragraph to check:\n${paragraph}` }],
+      maxOutputTokens: JUDGE_OUTPUT_TOKENS,
+      signal,
+    })) {
+      if (event.type === 'text') verdict += event.text;
+      else if (event.type === 'done') callUsage = event.usage;
+    }
+    if (callUsage !== undefined) {
+      usage = addUsage(usage, callUsage);
+      await options.onModelCall?.({
+        node: 'judge',
+        provider: options.chatModel.provider,
+        model: options.models.chat,
+        usage: callUsage,
+      });
+    }
+    return /^\s*YES\b/i.test(verdict);
+  }
+
   function finish(state: FinalState, text: string, citationIds: string[]): ChatOutcome {
     emit({ event: 'final', data: { state, citationIds, usage } });
     return { state, text, citationIds, usage, indexVersion: versionId };
@@ -280,6 +338,8 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
   const queryVectors = await embeddings.embed(queries, signal);
 
   for (const limit of [RETRIEVAL.limit, RETRIEVAL.retryLimit]) {
+    // Each attempt gets its own judge budget; a shared one would leave a retry unable to pass (ADR 0005).
+    judgeCalls = 0;
     emit({ event: 'status', data: { node: 'retrieve' } });
     const lists = await retrieval.search(
       access,
@@ -305,22 +365,15 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
     const citations = new Map<string, Citation>(
       chunks.map((chunk, i) => [ids[i] ?? '', { citationId: ids[i] ?? '', chunk }]),
     );
-    const known = new Set(citations.keys());
+    const known = new Map([...citations].map(([id, { chunk }]) => [id, chunkBody(chunk)]));
     const released: string[] = [];
     const releasedIds: string[] = [];
     let failure: ParagraphFailure | undefined;
 
-    const release = (paragraph: string) => {
-      const text = paragraph.trim();
-      if (text === '' || failure !== undefined) return;
-      const check = checkParagraph(text, known, policy);
-      if (!check.ok) {
-        failure = check.reason;
-        return;
-      }
+    const emitParagraph = (text: string, citationIds: string[]) => {
       emit({ event: 'token', data: { text: released.length === 0 ? text : `\n\n${text}` } });
       released.push(text);
-      for (const id of check.citationIds) {
+      for (const id of citationIds) {
         const citation = citations.get(id);
         if (citation === undefined || releasedIds.includes(id)) continue;
         releasedIds.push(id);
@@ -334,6 +387,24 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
           },
         });
       }
+    };
+
+    // With the judge on, paragraphs wait here until the answer has streamed and each one has
+    // been judged, so no unjudged text is released (ADR 0005).
+    const judged: { text: string; citationIds: string[] }[] = [];
+    const release = (paragraph: string) => {
+      const text = paragraph.trim();
+      if (text === '' || failure !== undefined) return;
+      const check = checkParagraph(text, known, policy);
+      if (!check.ok) {
+        failure = check.reason;
+        return;
+      }
+      if (config.verification.judge) {
+        judged.push({ text, citationIds: check.citationIds });
+        return;
+      }
+      emitParagraph(text, check.citationIds);
     };
 
     emit({ event: 'status', data: { node: 'answer' } });
@@ -366,6 +437,23 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
       },
     );
     release(buffer);
+
+    if (config.verification.judge) {
+      for (const paragraph of judged) {
+        if (failure !== undefined) break;
+        const cited = paragraph.citationIds.flatMap((id) => {
+          const citation = citations.get(id);
+          return citation === undefined
+            ? []
+            : [{ citationId: id, title: citation.chunk.title, text: citation.chunk.content }];
+        });
+        if (!(await judgeParagraph(paragraph.text, cited))) {
+          failure = 'unsupported_claim';
+          break;
+        }
+        emitParagraph(paragraph.text, paragraph.citationIds);
+      }
+    }
 
     emit({ event: 'status', data: { node: 'verify' } });
     const blocked =

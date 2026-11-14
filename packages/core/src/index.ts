@@ -74,7 +74,7 @@ export {
   ollamaModelName,
   recommendedOllamaModel,
 } from './llm/ollama.js';
-export type { OllamaChatModelOptions, OllamaFetch } from './llm/ollama.js';
+export type { OllamaChatModelOptions, OllamaFetch, OllamaSampling } from './llm/ollama.js';
 export type { AnthropicChatModelOptions, AnthropicClientLike } from './llm/anthropic.js';
 export { DEFAULT_CHAT_MODEL, createChatModel, resolveChatModels } from './llm/factory.js';
 
@@ -127,6 +127,9 @@ export type { ActivateOptions, ActivateResult } from './training/activate.js';
 
 export { evalSetSchema, parseEvalSet } from './eval/eval-set.js';
 export { DEFAULT_MIN_RECALL, runRetrievalEval } from './eval/run-eval.js';
+export { CHAT_EVAL_DEADLINE_MS, CHAT_EVAL_REPEATS, runChatEval } from './eval/run-chat-eval.js';
+export { chatConfigFingerprint } from './eval/config-fingerprint.js';
+export type { ChatEvalQuestionResult, ChatEvalResult, ChatEvalRun } from './eval/run-chat-eval.js';
 export type {
   EvalQuestionResult,
   RetrievalEvalOptions,

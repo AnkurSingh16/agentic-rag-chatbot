@@ -172,7 +172,7 @@ As in ADR 0003: whoever holds the `rag_runtime` credential can set the session v
 `createPostgresRetrievalStore(pool)` implements the core `RetrievalStore` port. Each call runs in `withInstanceTransaction`:
 
 - `activeVersion` reads `instances.active_index_version_id` with the version's embedding provider and model. The agent graph refuses to answer when they differ from the server's embedding provider.
-- `search` runs one statement per query against an explicit version: a full-text CTE (`websearch_to_tsquery('english', ...)`, ranked by `ts_rank_cd`, top 40) and a vector CTE (cosine distance through the HNSW index, top 40, dropping candidates with a distance above 0.8), fused with Reciprocal Rank Fusion (k = 60). Chunks with a fused score below 0.0165 are dropped, and the top 8 (16 on the verification retry) are returned. Constants: `RETRIEVAL` in `packages/core/src/retrieval/types.ts`.
+- `search` runs one statement per query against an explicit version: a full-text CTE (`websearch_to_tsquery('english', ...)`, ranked by `ts_rank_cd`, top 40) and a vector CTE (exact cosine distance over the caller's visible scope, materialized and sorted, top 40, dropping candidates with a distance above 0.8), fused with Reciprocal Rank Fusion (k = 60). Full-text-only chunks score at most 0.01639, so they fall below the 0.0165 floor and are dropped. Vector candidates within 0.8 are kept whatever their fused score (ADR 0009). The top 8 (16 on the verification retry) are returned. Constants: `RETRIEVAL` in `packages/core/src/retrieval/types.ts`.
 
 With a `rag_runtime` pool the corpus policy applies the caller's tenant and tags; `ragctl eval` uses a `rag_ingest` pool, whose policy reads every chunk of the instance, to score a version before activation.
 
@@ -189,7 +189,7 @@ Integration tests in `packages/server/test/integration` run against PostgreSQL w
 - instance A cannot read instance B's documents or chunks;
 - a north user with tag `faq` cannot see a south chunk tagged `faq`; tags match on overlap; empty or unknown tags see nothing;
 - a missing or incomplete access context returns zero rows, including on a reused connection;
-- the HNSW index returns the nearest chunk the caller may see, not a closer one from another instance or tenant;
+- the vector candidates come from a scope CTE that row-level security filters before the sort, so the nearest chunk the caller may see is returned, and no closer chunk from another instance or tenant can appear (ADR 0009 amendment);
 - `rag_runtime` cannot write the corpus or execute activation; `rag_ingest` can write only into a `building` version and cannot activate without the function;
 - activation moves the pointer and retires the previous version; rollback to a retired version works; building, already active, foreign-instance and mismatched-context activations are refused;
 - without `force`, activation is refused when the latest eval run is missing, failed or used another embedding model; with `force`, a missing or blank reason or operator is refused; every activation is logged, the log hides from `rag_runtime`, and `rag_ingest` cannot backdate a log row or log a forced activation without a reason; the two-argument function no longer exists;

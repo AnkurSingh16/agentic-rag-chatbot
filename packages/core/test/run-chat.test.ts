@@ -235,8 +235,9 @@ describe('runChat', () => {
 
   it('resets released paragraphs when a later one fails, and answers on the retry', async () => {
     const model = scripted([
-      (request) => `Good. [${ids(request)[0] ?? ''}]\n\nUnsupported claim.`,
-      (request) => `Better. [${ids(request)[1] ?? ''}]`,
+      (request) =>
+        `You can export notes to Markdown. [${ids(request)[0] ?? ''}]\n\nUnsupported claim.`,
+      (request) => `Export notes to Markdown. [${ids(request)[0] ?? ''}]`,
     ]);
     const { outcome, events } = await chat({ chatModel: model });
     const kinds = events.map((event) => event.event);
@@ -246,7 +247,7 @@ describe('runChat', () => {
       data: { reason: 'verification_failed' },
     });
     expect(outcome.state).toBe('ANSWERED');
-    expect(outcome.text).toMatch(/^Better\. \[c[0-9a-f]{6}\]$/);
+    expect(outcome.text).toMatch(/^Export notes to Markdown\. \[c[0-9a-f]{6}\]$/);
   });
 
   it('refuses instead of releasing a paragraph that mentions a forbidden topic', async () => {
@@ -258,9 +259,9 @@ describe('runChat', () => {
 
     const late = scripted([
       (request) =>
-        `Fine. [${ids(request)[0] ?? ''}]\n\nSome legal advice. [${ids(request)[0] ?? ''}]`,
+        `We do not give advice here. [${ids(request)[0] ?? ''}]\n\nSome legal advice. [${ids(request)[0] ?? ''}]`,
     ]);
-    const reset = await chat({ chatModel: late });
+    const reset = await chat({ chatModel: late, retrieval: retrieval.store });
     expect(reset.events.find((event) => event.event === 'reset')).toEqual({
       event: 'reset',
       data: { reason: 'guard_out' },
@@ -379,7 +380,9 @@ describe('guards', () => {
   });
 
   it('checks citations, forbidden topics, injection phrases and copied instructions', () => {
-    const known = new Set(['c00000a']);
+    const known = new Map([
+      ['c00000a', 'Fact about the service. The roadmap page lists pricing for each plan.'],
+    ]);
     const policy = (forbiddenTopics: string[] = [], protectedText: string[] = []) => ({
       forbiddenTopics,
       protectedShingles: instructionShingles(protectedText),
@@ -417,6 +420,25 @@ describe('guards', () => {
     ).toEqual({ ok: false, reason: 'disclosure' });
     expect(
       checkParagraph('The roadmap page lists pricing. [c00000a]', known, policy([], [secret])),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('rejects a paragraph whose content words are not in the chunks it cites', () => {
+    const known = new Map([['c00000a', 'Fact about the service. The roadmap page lists pricing.']]);
+    const policy = { forbiddenTopics: [], protectedShingles: new Set<string>() };
+    expect(
+      checkParagraph('Quantum entanglement powers teleportation. [c00000a]', known, policy),
+    ).toEqual({ ok: false, reason: 'low_overlap' });
+    expect(
+      checkParagraph('The roadmap page lists pricing for plans. [c00000a]', known, policy),
+    ).toMatchObject({ ok: true });
+    // A plural in the answer matches its singular in the source, so a correct paragraph is not refused.
+    expect(
+      checkParagraph(
+        'Mentoring sessions have listed prices. [c00000a]',
+        new Map([['c00000a', 'Mentoring session prices are listed.']]),
+        policy,
+      ),
     ).toMatchObject({ ok: true });
   });
 

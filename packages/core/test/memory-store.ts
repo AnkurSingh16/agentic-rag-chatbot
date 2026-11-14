@@ -1,4 +1,4 @@
-import { RETRIEVAL, evalGateFailure } from '../src/index.js';
+import { ChatbotError, RETRIEVAL } from '../src/index.js';
 import type {
   ActivationRequest,
   ChunkRecord,
@@ -15,9 +15,47 @@ interface StoredVersion extends IndexVersionSummary {
   evals: (NewEvalRun & { id: string; createdAt: Date })[];
 }
 
+const HARNESSES = ['retrieval', 'chat'] as const;
+
+/**
+ * The chat run must have been made with the configuration being activated (migration 0010). The
+ * retrieval run does not depend on the configuration.
+ */
+function fingerprintFailure(
+  version: StoredVersion,
+  fingerprint: string | null,
+): string | undefined {
+  const run = [...version.evals].reverse().find((e) => e.metrics.harness === 'chat');
+  if (run === undefined || run.metrics.configFingerprint === fingerprint) return undefined;
+  return `the latest chat eval run (${run.id}) was made with a different instance configuration`;
+}
+
+/**
+ * The gate migration 0009 enforces: the latest run of each harness must exist, have passed, and
+ * use the version's embedding provider and model. Runs are kept in order, so the last match is the
+ * latest.
+ */
+function harnessGateFailure(version: StoredVersion): string | undefined {
+  for (const harness of HARNESSES) {
+    const run = [...version.evals].reverse().find((e) => e.metrics.harness === harness);
+    if (run === undefined) return `it has no ${harness} eval run`;
+    if (!run.passed) return `its latest ${harness} eval run (${run.id}) failed`;
+    if (
+      run.embeddingProvider !== version.embeddingProvider ||
+      run.embeddingModel !== version.embeddingModel
+    ) {
+      return (
+        `its latest ${harness} eval run used ${run.embeddingProvider}/${run.embeddingModel}, ` +
+        `but the version was built with ${version.embeddingProvider}/${version.embeddingModel}`
+      );
+    }
+  }
+  return undefined;
+}
+
 // An in-memory IngestStore with the same state rules as the PostgreSQL one: writes only into
-// building versions, no deleting the active version, one active version per instance, the eval
-// gate on activation unless forced, and a log entry for every activation.
+// building versions, no deleting the active version, one active version per instance, the
+// per-harness eval gate on activation unless forced, and a log entry for every activation.
 export class MemoryStore implements IngestStore {
   readonly instances = new Set<string>();
   readonly versions: StoredVersion[] = [];
@@ -157,8 +195,10 @@ export class MemoryStore implements IngestStore {
     if (request.force && (request.reason ?? '').trim() === '') {
       throw new Error('forced activation requires a reason');
     }
-    const failure = request.force ? undefined : evalGateFailure(version);
-    if (failure !== undefined) throw new Error(`eval gate: ${failure}`);
+    const failure = request.force
+      ? undefined
+      : (harnessGateFailure(version) ?? fingerprintFailure(version, request.configFingerprint));
+    if (failure !== undefined) throw new ChatbotError('invalid_input', `eval gate: ${failure}`);
     this.activations.push({ ...request, instanceId, versionId });
     const previous = this.versions.find(
       (v) => v.instanceId === instanceId && v.status === 'active',

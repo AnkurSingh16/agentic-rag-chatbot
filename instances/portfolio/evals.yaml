@@ -1,0 +1,83 @@
+# Eval set for the portfolio instance. The sources are the published knowledge files that
+# instance.yaml reads. Run it with `ragctl eval portfolio`.
+questions:
+  - id: services-fractional
+    question: Do you offer fractional engineering leadership?
+    answer: Yes, a few days a month or a fixed-scope engagement for small businesses and startups.
+    sources: [https://ankursingh16.github.io/knowledge/services.md]
+  - id: services-software
+    question: Can you build a mobile app for my business?
+    answer: Yes, web and mobile apps from first version to launch, on fixed-scope projects.
+    sources: [https://ankursingh16.github.io/knowledge/services.md]
+  - id: services-identity
+    question: Do you help with secure customer login?
+    answer: Yes, secure customer login and identity with Auth0.
+    sources: [https://ankursingh16.github.io/knowledge/services.md]
+  - id: mentoring-career
+    question: Do you mentor engineers who want to move into management?
+    answer: Yes, career and leadership mentoring, including the choice between technical and management paths.
+    sources: [https://ankursingh16.github.io/knowledge/mentoring.md]
+  - id: mentoring-interview
+    question: Can you help me prepare for an engineering manager interview?
+    answer: Yes, mock interviews with written feedback and leadership interview preparation.
+    sources: [https://ankursingh16.github.io/knowledge/mentoring.md]
+  - id: mentoring-price
+    question: How much do mentoring sessions cost?
+    answer: AUD 150 + GST for a 45-minute session, with 30% off for students.
+    sources: [https://ankursingh16.github.io/knowledge/mentoring.md]
+  - id: career-tpg
+    question: Which customer apps did Ankur lead at TPG Telecom?
+    answer: The Vodafone, TPG and iiNet customer apps.
+    sources: [https://ankursingh16.github.io/knowledge/career.md]
+  - id: career-auth0
+    question: Has Ankur worked on customer identity with Auth0?
+    answer: Yes, he led engineering for the Auth0 customer identity platform at TPG Telecom.
+    sources: [https://ankursingh16.github.io/knowledge/career.md]
+  - id: career-tata
+    question: What did Ankur do at Tata Consultancy Services?
+    answer: He built and supported banking software for Westpac Group.
+    sources: [https://ankursingh16.github.io/knowledge/career.md]
+  - id: career-certifications
+    question: Which leadership certifications does Ankur hold?
+    answer: Organizational Leadership from Northwestern University and Product Leadership in Complex Organizations from Stanford Online, among others.
+    sources: [https://ankursingh16.github.io/knowledge/career.md]
+  - id: about-location
+    question: Where is Ankur based?
+    answer: Sydney, Australia.
+    sources: [https://ankursingh16.github.io/knowledge/about.md]
+  - id: writing-medium
+    question: Where does Ankur publish articles?
+    answer: On Medium.
+    sources: [https://ankursingh16.github.io/knowledge/writing.md]
+  - id: contact-linkedin
+    question: What is Ankur's LinkedIn profile?
+    answer: https://www.linkedin.com/in/ankur-pawar-262746125
+    sources: [https://ankursingh16.github.io/knowledge/contact.md]
+  - id: contact-github
+    question: Where can I find Ankur's code on GitHub?
+    answer: https://github.com/AnkurSingh16
+    sources: [https://ankursingh16.github.io/knowledge/contact.md]
+  - id: employment-current
+    question: Is Ankur currently employed?
+    answerable: false
+  - id: employment-open-to-roles
+    question: Is he open to new full-time roles?
+    answerable: false
+  - id: employment-available
+    question: Is Ankur available for hire right now?
+    answerable: false
+  - id: employment-looking
+    question: Is Ankur looking for a new job?
+    answerable: false
+  - id: salary-expectation
+    question: What salary does Ankur expect?
+    answerable: false
+  - id: off-topic-capital
+    question: What is the capital of France?
+    answerable: false
+  - id: off-topic-recipe
+    question: How do I bake sourdough bread?
+    answerable: false
+  - id: off-topic-weather
+    question: What is the weather in Sydney tomorrow?
+    answerable: false

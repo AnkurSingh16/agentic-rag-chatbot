@@ -10,6 +10,8 @@ export interface ActivateOptions {
   reason?: string;
   /** Who ran the activation; recorded with every activation. */
   operator: string;
+  /** The current instance configuration fingerprint. Required by the store unless forced. */
+  configFingerprint?: string | null;
   log: (event: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -22,7 +24,10 @@ export interface ActivateResult {
 /**
  * Why a version may not be activated without `--force`, or undefined when the
  * eval gate passes: its latest eval run must have passed with the version's
- * own embedding provider and model (ADR 0002).
+ * own embedding provider and model (ADR 0002). This reads only the latest run of
+ * any harness. The store also requires a passing latest retrieval run and a
+ * passing latest chat run (migration 0009), and refuses activation when either is
+ * missing, so this check can only give a less precise message, never allow more.
  */
 export function evalGateFailure(version: IndexVersionSummary): string | undefined {
   const run = version.latestEval;
@@ -112,6 +117,7 @@ export async function activateVersion(options: ActivateOptions): Promise<Activat
     force,
     reason: reason === '' ? undefined : reason,
     operator,
+    configFingerprint: options.configFingerprint ?? null,
   });
   options.log({
     event: 'index.activated',

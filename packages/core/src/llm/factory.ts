@@ -10,7 +10,7 @@ import {
   ollamaBaseUrl,
   ollamaModelName,
 } from './ollama.js';
-import type { OllamaFetch } from './ollama.js';
+import type { OllamaFetch, OllamaSampling } from './ollama.js';
 import type { ChatModel } from './types.js';
 
 /** The model used when neither the instance nor LLM_MODEL names one (ADR 0008). */
@@ -31,7 +31,11 @@ function setting(env: Environment, name: string): string | undefined {
  */
 export function createChatModel(
   env: Environment,
-  options: { anthropicClient?: AnthropicClientLike; ollamaFetch?: OllamaFetch } = {},
+  options: {
+    anthropicClient?: AnthropicClientLike;
+    ollamaFetch?: OllamaFetch;
+    ollamaSampling?: OllamaSampling;
+  } = {},
 ): ChatModel {
   const provider = setting(env, 'LLM_PROVIDER') ?? 'mock';
   if (provider === 'mock') return createMockChatModel();
@@ -43,6 +47,7 @@ export function createChatModel(
       ),
       model: ollamaModelName(env),
       ...(options.ollamaFetch === undefined ? {} : { fetch: options.ollamaFetch }),
+      ...(options.ollamaSampling === undefined ? {} : { sampling: options.ollamaSampling }),
     });
   }
   if (provider !== 'anthropic') {
