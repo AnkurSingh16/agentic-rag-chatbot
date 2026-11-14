@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChatWidget } from './ChatWidget.js';
+import { ChatWidget } from '@agentic-rag/react';
+import '@agentic-rag/react/widget.css';
 import './styles.css';
 
 // An empty VITE_CHAT_API_URL, as copied from .env.example, means the default.

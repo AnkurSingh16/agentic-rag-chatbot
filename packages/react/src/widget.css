@@ -1,0 +1,290 @@
+/*
+ * Chat widget styles. Colours and type come from the host site's CSS variables, so the widget
+ * takes the site's look: --accent, --surface, --ink, --muted, --rule, --radius, --font-head and
+ * --font-body. Each has a fallback, so the widget still renders on a site without them.
+ */
+
+.cw-root {
+  --cw-accent: var(--accent, #2f6b57);
+  --cw-accent-ink: var(--accent-ink, #ffffff);
+  --cw-surface: var(--surface, #ffffff);
+  --cw-ink: var(--ink, #18212b);
+  --cw-muted: var(--muted, #4a5560);
+  --cw-rule: var(--rule, #d5dcd8);
+  --cw-radius: var(--radius, 6px);
+  --cw-font-head: var(--font-head, system-ui, sans-serif);
+  --cw-font-body: var(--font-body, Georgia, serif);
+  --cw-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  color: var(--cw-ink);
+  font-family: var(--cw-font-body);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Launcher: a round accent button that hides while the panel is open. */
+.cw-launcher {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cw-accent);
+  color: var(--cw-accent-ink);
+  box-shadow: 0 8px 24px rgba(24, 33, 43, 0.18);
+  cursor: pointer;
+  transition:
+    transform 180ms var(--cw-ease),
+    opacity 180ms var(--cw-ease),
+    background-color 150ms ease;
+}
+.cw-launcher svg,
+.cw-icon-button svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cw-launcher:hover {
+  transform: translateY(-2px);
+  background: var(--ink, #18212b);
+}
+.cw-launcher.is-visible {
+  animation: cw-pop 260ms var(--cw-ease);
+}
+.cw-launcher.is-hidden {
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+}
+
+@keyframes cw-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Panel: slides up and fades in on open, and reverses on minimise. */
+.cw-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(384px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 120px));
+  background: var(--cw-surface);
+  border: 1px solid var(--cw-rule);
+  border-radius: calc(var(--cw-radius) * 2);
+  box-shadow: 0 18px 48px rgba(24, 33, 43, 0.2);
+  transform-origin: bottom right;
+  overflow: hidden;
+}
+.cw-panel.is-open {
+  animation: cw-open 240ms var(--cw-ease) both;
+}
+.cw-panel.is-closing {
+  animation: cw-close 200ms ease-in both;
+}
+
+@keyframes cw-open {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cw-close {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+
+.cw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--cw-accent);
+  color: var(--cw-accent-ink);
+}
+.cw-title {
+  font-family: var(--cw-font-head);
+  font-weight: 700;
+  font-size: 17px;
+}
+.cw-icon-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--cw-radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.cw-icon-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.cw-messages {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  overflow-y: auto;
+  list-style: none;
+}
+.cw-message + .cw-message {
+  margin-top: 14px;
+}
+.cw-user {
+  margin-left: 40px;
+  padding: 10px 14px;
+  border-radius: var(--cw-radius);
+  background: var(--tint, #dce8e1);
+  color: var(--cw-ink);
+}
+.cw-assistant {
+  margin-right: 24px;
+}
+.cw-text {
+  margin: 0;
+}
+.cw-pending {
+  margin: 0;
+  color: var(--cw-muted);
+  font-style: italic;
+}
+.cw-note {
+  margin: 6px 0 0;
+  color: var(--cw-muted);
+  font-size: 14px;
+}
+.cw-error {
+  margin: 6px 0 0;
+  color: #cf222e;
+  font-size: 14px;
+}
+
+.cw-footnotes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--cw-muted);
+  font-size: 14px;
+}
+.cw-footnote-ref a {
+  color: var(--cw-accent);
+}
+.cw-source {
+  color: var(--cw-muted);
+  word-break: break-all;
+}
+
+.cw-handoff {
+  margin-top: 10px;
+}
+.cw-handoff-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cw-disclaimer {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: var(--cw-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cw-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--cw-rule);
+}
+.cw-form input,
+.cw-handoff-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cw-rule);
+  border-radius: var(--cw-radius);
+  background: var(--cw-surface);
+  color: var(--cw-ink);
+  font: inherit;
+}
+.cw-form input:focus-visible,
+.cw-handoff-row input:focus-visible {
+  outline: 2px solid var(--cw-accent);
+  outline-offset: 2px;
+}
+.cw-form button,
+.cw-handoff-row button {
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--cw-radius);
+  background: var(--cw-accent);
+  color: var(--cw-accent-ink);
+  font-family: var(--cw-font-head);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cw-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cw-form button:not(:disabled):hover,
+.cw-handoff-row button:hover {
+  background: var(--ink, #18212b);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-launcher,
+  .cw-panel,
+  .cw-launcher.is-visible,
+  .cw-panel.is-open,
+  .cw-panel.is-closing {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .cw-root {
+    right: 16px;
+    bottom: 16px;
+  }
+  .cw-panel {
+    width: calc(100vw - 32px);
+    height: calc(100vh - 110px);
+  }
+}
