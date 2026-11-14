@@ -3,13 +3,12 @@ import type { FallbackConfig, InstanceConfig } from '../config/schema.js';
 
 /**
  * The system prompt of the verification judge (verification.judge). It checks one paragraph against
- * the documents it cites. A sentence that restates a contact route the documents give is allowed,
- * because a visitor needs that route even though it is not a claim about the subject. Claims about
- * availability, employment, plans or personal circumstances are not.
+ * the documents it cites. Claims about availability, employment, plans or personal circumstances are
+ * refused. A contact-route allowance was tried and removed: it let an availability claim through
+ * (ADR 0009).
  */
 export const JUDGE_SYSTEM = `You check one paragraph of an answer against the documents it cites.
 Reply YES only if every claim in the paragraph is stated in those documents, or is a direct restatement of something they say.
-A sentence that tells the visitor how to get in touch, book or ask, and that matches a contact route the documents give, is a restatement and counts as YES.
 A figure, such as a price, counts as YES only when the documents state the same figure.
 Reply NO if the paragraph adds any claim, conclusion or guess that the documents do not state. This includes claims about availability, employment, plans or personal circumstances.
 Reply with YES or NO only.`;
