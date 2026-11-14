@@ -351,7 +351,8 @@ describe('ragctl eval', () => {
   it('refuses bad options, missing versions, other embedding models and missing eval sets', async () => {
     const h = await trained();
     expect(await run(['eval', 'help', '--min-recall', '1.5'], h.context)).toBe(1);
-    expect(h.err()).toContain('--min-recall must be a number from 0 to 1');
+    expect(h.err()).toContain('--min-recall must be above 0 and at most 1');
+    expect(await run(['eval', 'help', '--min-recall', '0'], h.context)).toBe(1);
     expect(await run(['eval', 'help', 'nope'], h.context)).toBe(1);
     expect(h.err()).toContain('Index version nope does not exist');
     expect(await run(['eval'], h.context)).toBe(1);

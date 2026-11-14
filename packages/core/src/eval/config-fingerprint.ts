@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { LEXICAL_OVERLAP_MIN } from '../agent/guards.js';
 import { ANSWER_RULES, JUDGE_SYSTEM, ROUTE_RULES } from '../agent/prompts.js';
 import type { InstanceConfig } from '../config/schema.js';
+import { RETRIEVAL } from '../retrieval/types.js';
 
 /**
  * A digest of the settings that decide what a chat turn can say: the persona, the forbidden
@@ -10,12 +12,25 @@ import type { InstanceConfig } from '../config/schema.js';
 export function chatConfigFingerprint(
   config: InstanceConfig,
   models: { chat: string; router: string },
+  runtime: { chatDigest: string } = { chatDigest: 'none' },
 ): string {
   const settings = {
     persona: config.persona,
     verification: config.verification,
     limits: config.limits,
     models,
+    // The model weights (Ollama digest), so a re-pulled tag is a different model.
+    runtime,
+    // Retrieval and guard constants the run depends on (naysayer, ADR 0009).
+    retrieval: {
+      maxVectorDistance: RETRIEVAL.maxVectorDistance,
+      minFusedScore: RETRIEVAL.minFusedScore,
+      rrfK: RETRIEVAL.rrfK,
+      candidates: RETRIEVAL.candidates,
+      limit: RETRIEVAL.limit,
+      retryLimit: RETRIEVAL.retryLimit,
+    },
+    lexicalOverlapMin: LEXICAL_OVERLAP_MIN,
     // The prompts are part of what the gate measured, so a change to them invalidates the run.
     prompts: { route: ROUTE_RULES, answer: ANSWER_RULES, judge: JUDGE_SYSTEM },
   };
