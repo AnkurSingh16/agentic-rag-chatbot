@@ -8,7 +8,10 @@
     "types": ["vite/client"],
     "noEmit": true,
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "paths": {
+      "@agentic-rag/react": ["../../packages/react/src/index.ts"]
+    }
   },
   "include": ["src", "test", "vite.config.ts"]
 }
