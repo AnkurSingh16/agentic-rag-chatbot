@@ -17,7 +17,14 @@ import type {
 import type { ChatEvent, FinalState } from './events.js';
 import { checkParagraph, guardInput, instructionShingles } from './guards.js';
 import type { OutputPolicy, ParagraphFailure } from './guards.js';
-import { ANSWER_RULES, ROUTE_RULES, answerSystem, fallbackText, routeSystem } from './prompts.js';
+import {
+  ANSWER_RULES,
+  JUDGE_SYSTEM,
+  ROUTE_RULES,
+  answerSystem,
+  fallbackText,
+  routeSystem,
+} from './prompts.js';
 
 /**
  * Per-turn budgets from ADR 0005. Input is estimated as characters ÷ 4 and capped per call, so
@@ -37,10 +44,6 @@ const MAX_QUERIES = 3;
 const JUDGE_MAX_CALLS = 3;
 const JUDGE_OUTPUT_TOKENS = 4;
 
-const JUDGE_SYSTEM = `You check one paragraph of an answer against the documents it cites.
-Reply YES only if every claim in the paragraph is stated in those documents, or is a direct restatement of something they say.
-Reply NO if the paragraph adds any claim, conclusion or guess that the documents do not state. This includes claims about availability, employment, pricing, plans or personal circumstances.
-Reply with YES or NO only.`;
 const EXCERPT_CHARS = 240;
 
 const ROUTE_TOOL: ChatTool = {

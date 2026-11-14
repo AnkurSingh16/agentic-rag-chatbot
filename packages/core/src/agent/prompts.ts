@@ -1,6 +1,19 @@
 import { DEFAULT_STYLE_GUIDE } from '../config/schema.js';
 import type { FallbackConfig, InstanceConfig } from '../config/schema.js';
 
+/**
+ * The system prompt of the verification judge (verification.judge). It checks one paragraph against
+ * the documents it cites. A sentence that restates a contact route the documents give is allowed,
+ * because a visitor needs that route even though it is not a claim about the subject. Claims about
+ * availability, employment, plans or personal circumstances are not.
+ */
+export const JUDGE_SYSTEM = `You check one paragraph of an answer against the documents it cites.
+Reply YES only if every claim in the paragraph is stated in those documents, or is a direct restatement of something they say.
+A sentence that tells the visitor how to get in touch, book or ask, and that matches a contact route the documents give, is a restatement and counts as YES.
+A figure, such as a price, counts as YES only when the documents state the same figure.
+Reply NO if the paragraph adds any claim, conclusion or guess that the documents do not state. This includes claims about availability, employment, plans or personal circumstances.
+Reply with YES or NO only.`;
+
 /** Instructions for the routing call. The route tool carries the decision. */
 export const ROUTE_RULES =
   'Decide how to handle the latest user message by calling the route tool. The documents are the knowledge base for the subject in the instructions above. Use knowledge for any question about that subject, including its people, services, history, contact details and links, even when the words differ from the documents. Use out_of_scope only for questions that do not concern that subject. When unsure, use knowledge: the answer step checks the documents before anything is shown. Write search queries that stand on their own without the conversation.';
