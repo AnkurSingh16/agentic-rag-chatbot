@@ -126,4 +126,35 @@ describe('verification judge', () => {
     expect(outcome.state).toBe('ANSWERED');
     expect(judged).toEqual([]);
   });
+
+  it('gives the retry its own judge budget, so a second attempt can pass', async () => {
+    // Attempt one judges paragraph one YES and paragraph two NO. Attempt two judges both YES.
+    // A budget shared across attempts would run out on the fourth judge call.
+    const verdicts = ['YES', 'NO', 'YES', 'YES'];
+    let judged = 0;
+    const chatModel: ChatModel = {
+      provider: 'mock',
+      // eslint-disable-next-line @typescript-eslint/require-await -- the fake yields without awaiting
+      async *generate(request) {
+        if (request.tools !== undefined) {
+          yield { type: 'tool_use', name: 'route', input: { intent: 'knowledge', queries: [] } };
+        } else if (request.system.startsWith(JUDGE)) {
+          yield { type: 'text', text: verdicts[judged++] ?? 'NO' };
+        } else {
+          const id = parseContext(request.context)[0]?.citationId ?? '';
+          yield {
+            type: 'text',
+            text: `Fractional engineering leadership is offered. [${id}]\n\nIt is for small businesses. [${id}]`,
+          };
+        }
+        yield {
+          type: 'done',
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        };
+      },
+    };
+    const { outcome } = await turn(true, chatModel);
+    expect(judged).toBe(4);
+    expect(outcome.state).toBe('ANSWERED');
+  });
 });

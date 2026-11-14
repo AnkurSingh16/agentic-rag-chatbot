@@ -338,6 +338,8 @@ export async function runChat(options: RunChatOptions): Promise<ChatOutcome> {
   const queryVectors = await embeddings.embed(queries, signal);
 
   for (const limit of [RETRIEVAL.limit, RETRIEVAL.retryLimit]) {
+    // Each attempt gets its own judge budget; a shared one would leave a retry unable to pass (ADR 0005).
+    judgeCalls = 0;
     emit({ event: 'status', data: { node: 'retrieve' } });
     const lists = await retrieval.search(
       access,
