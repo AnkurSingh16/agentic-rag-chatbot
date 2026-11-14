@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode, SyntheticEvent } from 'react';
 import { readSse } from './sse.js';
 
@@ -18,11 +18,23 @@ interface Message {
   citations: Citation[];
   state?: FinalState;
   error?: string;
+  /** The visitor's question, kept on assistant replies for the handoff. */
+  question?: string;
+  handoff?: 'offer' | 'sent' | 'failed' | undefined;
 }
 
 export interface ChatWidgetProps {
   apiUrl: string;
   instanceId: string;
+  /** Heading shown in the open panel. */
+  title?: string;
+  /**
+   * Where a question the assistant could not answer is sent, for example the site's contact form
+   * endpoint. Without it, no handoff is offered.
+   */
+  contactEndpoint?: string;
+  /** Open the panel on first render instead of showing the launcher. */
+  defaultOpen?: boolean;
 }
 
 const STATE_NOTES: Partial<Record<FinalState, string>> = {
@@ -62,7 +74,7 @@ function Answer({ text, citations }: { text: string; citations: Citation[] }) {
     if (citation === undefined) continue;
     const number = order.indexOf(id) + 1;
     pieces.push(
-      <sup key={`${index}-${id}`} className="chat-footnote-ref">
+      <sup key={`${index}-${id}`} className="cw-footnote-ref">
         {isWebLink(citation.sourceUri) ? (
           <a href={citation.sourceUri} target="_blank" rel="noopener noreferrer">
             {number}
@@ -77,16 +89,16 @@ function Answer({ text, citations }: { text: string; citations: Citation[] }) {
 
   return (
     <>
-      <p className="chat-text">{pieces}</p>
+      <p className="cw-text">{pieces}</p>
       {order.length > 0 && (
-        <ol className="chat-footnotes" aria-label="Sources">
+        <ol className="cw-footnotes" aria-label="Sources">
           {order.map((id) => {
             const citation = byId.get(id);
             if (citation === undefined) return null;
             return (
               <li key={id} title={citation.excerpt}>
                 {citation.title}{' '}
-                <span className="chat-source">
+                <span className="cw-source">
                   {isWebLink(citation.sourceUri) ? (
                     <a href={citation.sourceUri} target="_blank" rel="noopener noreferrer">
                       {citation.sourceUri}
@@ -126,15 +138,51 @@ async function errorCode(response: Response): Promise<string> {
   }
 }
 
-export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
-  const [open, setOpen] = useState(false);
+// The panel stays mounted while it animates out, so the conversation survives minimising.
+type Phase = 'closed' | 'open' | 'closing';
+const CLOSE_MS = 220;
+
+const HANDOFF_STATES: ReadonlySet<FinalState> = new Set([
+  'INSUFFICIENT_EVIDENCE',
+  'OUT_OF_SCOPE',
+  'REFUSED',
+]);
+
+export function ChatWidget({
+  apiUrl,
+  instanceId,
+  title = 'Ask a question',
+  contactEndpoint,
+  defaultOpen = false,
+}: ChatWidgetProps) {
+  const [phase, setPhase] = useState<Phase>(defaultOpen ? 'open' : 'closed');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [handoffEmail, setHandoffEmail] = useState('');
   const session = useRef<string | undefined>(undefined);
   const conversationId = useRef<string | undefined>(undefined);
   const nextId = useRef(0);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const base = `${apiUrl}/v1/instances/${instanceId}`;
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(closeTimer.current);
+    };
+  }, []);
+
+  function open() {
+    clearTimeout(closeTimer.current);
+    setPhase('open');
+  }
+
+  function minimise() {
+    setPhase('closing');
+    closeTimer.current = setTimeout(() => {
+      setPhase((current) => (current === 'closing' ? 'closed' : current));
+    }, CLOSE_MS);
+  }
 
   function update(id: number, change: (message: Message) => Message) {
     setMessages((current) =>
@@ -192,9 +240,16 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
           // Released text failed the final check; the server sends a replacement.
           update(replyId, (m) => ({ ...m, text: '', citations: [] }));
           break;
-        case 'final':
-          update(replyId, (m) => ({ ...m, state: (data as { state: FinalState }).state }));
+        case 'final': {
+          const state = (data as { state: FinalState }).state;
+          update(replyId, (m) => ({
+            ...m,
+            state,
+            handoff:
+              contactEndpoint !== undefined && HANDOFF_STATES.has(state) ? 'offer' : undefined,
+          }));
           break;
+        }
         case 'error':
           throw new ChatRequestError((data as { code: string }).code);
       }
@@ -212,7 +267,7 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
     setMessages((current) => [
       ...current,
       { id: userId, role: 'user', text: message, citations: [] },
-      { id: replyId, role: 'assistant', text: '', citations: [] },
+      { id: replyId, role: 'assistant', text: '', citations: [], question: message },
     ]);
     try {
       await ask(message, replyId);
@@ -227,47 +282,84 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
     }
   }
 
+  // Sends the visitor's own question to the site's contact endpoint. The question and the optional
+  // email go in the request body, never in the URL.
+  async function sendToOwner(replyId: number, question: string) {
+    if (contactEndpoint === undefined) return;
+    update(replyId, (m) => ({ ...m, handoff: 'offer' }));
+    try {
+      const response = await fetch(contactEndpoint, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: question,
+          email: handoffEmail.trim() === '' ? undefined : handoffEmail.trim(),
+          source: 'chat-widget',
+          instanceId,
+        }),
+      });
+      update(replyId, (m) => ({ ...m, handoff: response.ok ? 'sent' : 'failed' }));
+    } catch {
+      update(replyId, (m) => ({ ...m, handoff: 'failed' }));
+    }
+  }
+
+  const panelOpen = phase !== 'closed';
   return (
-    <div className="chat">
-      {open && (
-        <section className="chat-panel" aria-label="Chat">
-          <header className="chat-header">
-            <span>Ask the help articles</span>
+    <div className="cw-root">
+      {panelOpen && (
+        <section
+          className={`cw-panel ${phase === 'closing' ? 'is-closing' : 'is-open'}`}
+          aria-label="Chat"
+        >
+          <header className="cw-header">
+            <span className="cw-title">{title}</span>
             <button
               type="button"
-              aria-label="Close chat"
-              onClick={() => {
-                setOpen(false);
-              }}
+              className="cw-icon-button"
+              aria-label="Minimise chat"
+              onClick={minimise}
             >
-              ×
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 12h12" />
+              </svg>
             </button>
           </header>
-          <ol className="chat-messages" aria-live="polite">
+          <ol className="cw-messages" aria-live="polite">
             {messages.map((message) => (
-              <li key={message.id} className={`chat-message chat-${message.role}`}>
+              <li key={message.id} className={`cw-message cw-${message.role}`}>
                 {message.text !== '' && (
                   <Answer text={message.text} citations={message.citations} />
                 )}
                 {message.role === 'assistant' &&
                   message.text === '' &&
-                  message.error === undefined && <p className="chat-pending">Thinking…</p>}
+                  message.error === undefined && <p className="cw-pending">Thinking…</p>}
                 {message.error !== undefined && (
-                  <p className="chat-error" role="alert">
+                  <p className="cw-error" role="alert">
                     {message.error}
                   </p>
                 )}
                 {message.state !== undefined && STATE_NOTES[message.state] !== undefined && (
-                  <p className="chat-note">{STATE_NOTES[message.state]}</p>
+                  <p className="cw-note">{STATE_NOTES[message.state]}</p>
                 )}
+                {message.handoff !== undefined &&
+                  message.question !== undefined &&
+                  contactEndpoint !== undefined && (
+                    <Handoff
+                      status={message.handoff}
+                      email={handoffEmail}
+                      onEmail={setHandoffEmail}
+                      onSend={() => void sendToOwner(message.id, message.question ?? '')}
+                    />
+                  )}
               </li>
             ))}
           </ol>
-          <p className="chat-disclaimer">
+          <p className="cw-disclaimer">
             This is an AI assistant and can make mistakes. Check important details against the
             sources.
           </p>
-          <form className="chat-form" onSubmit={(event) => void onSubmit(event)}>
+          <form className="cw-form" onSubmit={(event) => void onSubmit(event)}>
             <input
               aria-label="Message"
               value={input}
@@ -285,14 +377,55 @@ export function ChatWidget({ apiUrl, instanceId }: ChatWidgetProps) {
       )}
       <button
         type="button"
-        className="chat-launcher"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((value) => !value);
-        }}
+        className={`cw-launcher ${panelOpen ? 'is-hidden' : 'is-visible'}`}
+        aria-label="Chat"
+        aria-expanded={panelOpen}
+        onClick={open}
       >
-        {open ? 'Close' : 'Chat'}
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V16h0A2.5 2.5 0 0 1 4 13.5z" />
+        </svg>
       </button>
+    </div>
+  );
+}
+
+function Handoff({
+  status,
+  email,
+  onEmail,
+  onSend,
+}: {
+  status: 'offer' | 'sent' | 'failed';
+  email: string;
+  onEmail: (value: string) => void;
+  onSend: () => void;
+}) {
+  if (status === 'sent') return <p className="cw-note">Sent. Ankur will reply when he can.</p>;
+  if (status === 'failed') {
+    return (
+      <p className="cw-error" role="alert">
+        That did not send. Try the contact form on the site.
+      </p>
+    );
+  }
+  return (
+    <div className="cw-handoff">
+      <p className="cw-note">Send this question to Ankur?</p>
+      <div className="cw-handoff-row">
+        <input
+          aria-label="Your email, optional"
+          type="email"
+          value={email}
+          placeholder="Email (optional)"
+          onChange={(event) => {
+            onEmail(event.target.value);
+          }}
+        />
+        <button type="button" onClick={onSend}>
+          Send to Ankur
+        </button>
+      </div>
     </div>
   );
 }

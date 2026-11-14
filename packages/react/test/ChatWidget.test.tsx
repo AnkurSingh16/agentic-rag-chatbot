@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatWidget } from '../src/ChatWidget.js';
 
@@ -98,20 +98,20 @@ describe('ChatWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await screen.findByText(/Export to PDF too/);
-    const answer = container.querySelector('.chat-assistant .chat-text')?.textContent ?? '';
+    const answer = container.querySelector('.cw-assistant .cw-text')?.textContent ?? '';
     expect(answer).toBe('Sync takes about thirty seconds.1\n\nExport to PDF too.21');
     expect(answer).not.toContain('[c');
 
-    const footnotes = Array.from(container.querySelectorAll('.chat-footnotes li')).map(
+    const footnotes = Array.from(container.querySelectorAll('.cw-footnotes li')).map(
       (item) => item.textContent,
     );
     expect(footnotes).toEqual([
       'Sync data/sync.md',
       'Exporting notes https://example.com/help/export',
     ]);
-    const webLink = container.querySelector('.chat-footnote-ref a[href^="https://"]');
+    const webLink = container.querySelector('.cw-footnote-ref a[href^="https://"]');
     expect(webLink?.textContent).toBe('2');
-    const localRef = container.querySelector('.chat-footnote-ref');
+    const localRef = container.querySelector('.cw-footnote-ref');
     expect(localRef?.querySelector('a')).toBeNull();
   });
 
@@ -152,5 +152,68 @@ describe('ChatWidget', () => {
     render(<ChatWidget apiUrl="https://api.example.test" instanceId="help" />);
     fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
     expect(screen.getByText(/AI assistant and can make mistakes/)).toBeTruthy();
+  });
+
+  it('minimises to the launcher and reopens with the conversation kept', async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        url.endsWith('/session')
+          ? new Response(JSON.stringify({ token: 'session-token' }))
+          : new Response(streamOf(frame('final', { state: 'ANSWERED' })), {
+              headers: { 'content-type': 'text/event-stream' },
+            }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ChatWidget apiUrl="http://api.test" instanceId="demo" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Minimise chat' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Chat' })).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: 'Chat' }).className).toContain('is-visible');
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByRole('region', { name: 'Chat' })).toBeTruthy();
+  });
+
+  it('offers a handoff to the owner when the answer is refused, and sends the question', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith('/session'))
+        return Promise.resolve(new Response(JSON.stringify({ token: 't' })));
+      if (url === 'https://contact.test/form')
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      return Promise.resolve(
+        new Response(streamOf(frame('final', { state: 'OUT_OF_SCOPE' })), {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <ChatWidget
+        apiUrl="http://api.test"
+        instanceId="demo"
+        contactEndpoint="https://contact.test/form"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    fireEvent.change(screen.getByLabelText('Message'), {
+      target: { value: 'What is the weather?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to Ankur' }));
+    expect(await screen.findByText(/Sent\. Ankur will reply/)).toBeTruthy();
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
+    const sent = calls.find((call) => call[0] === 'https://contact.test/form')?.[1];
+    const body = JSON.parse(typeof sent?.body === 'string' ? sent.body : '{}') as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      message: 'What is the weather?',
+      source: 'chat-widget',
+      instanceId: 'demo',
+    });
+    expect(calls.map((call) => call[0])).not.toContain('What is the weather?');
   });
 });

@@ -30,8 +30,8 @@ const CHAT_SAMPLING = { temperature: 0, seed: 1 } as const;
 function parseMinRecall(value: string | undefined): number {
   if (value === undefined) return DEFAULT_MIN_RECALL;
   const parsed = Number(value);
-  if (!/^\d*\.?\d+$/.test(value) || parsed > 1) {
-    throw new ChatbotError('invalid_input', '--min-recall must be a number from 0 to 1');
+  if (!/^\d*\.?\d+$/.test(value) || parsed <= 0 || parsed > 1) {
+    throw new ChatbotError('invalid_input', '--min-recall must be above 0 and at most 1');
   }
   return parsed;
 }
@@ -49,6 +49,19 @@ async function ollamaDigest(context: CliContext, baseUrl: string, model: string)
     throw new ChatbotError('invalid_config', `Ollama does not have the model "${model}"`);
   }
   return found.digest;
+}
+
+/**
+ * The Ollama digest of the chat model, or 'none' with another provider. Activation computes the same
+ * value, so a re-pulled model under the same tag invalidates the chat run (naysayer, ADR 0009).
+ */
+export async function chatDigest(context: CliContext, model: string): Promise<string> {
+  if (context.env.LLM_PROVIDER !== 'ollama') return 'none';
+  const baseUrl = ollamaBaseUrl(
+    context.env.OLLAMA_BASE_URL ?? OLLAMA_DEFAULT_BASE_URL,
+    context.env.OLLAMA_ALLOW_REMOTE === 'true',
+  );
+  return ollamaDigest(context, baseUrl, model);
 }
 
 interface ChatHarnessInput {
@@ -103,7 +116,7 @@ async function runChatHarness(input: ChatHarnessInput): Promise<ChatHarnessRun> 
     result,
     model: models.chat,
     modelDigest,
-    configFingerprint: chatConfigFingerprint(config, models),
+    configFingerprint: chatConfigFingerprint(config, models, { chatDigest: modelDigest }),
   };
 }
 

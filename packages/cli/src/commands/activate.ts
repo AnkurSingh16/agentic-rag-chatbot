@@ -6,6 +6,7 @@ import {
 } from '@agentic-rag/core';
 import type { CliContext } from '../context.js';
 import { checkInstanceId, loadInstance, withIngestStore } from '../context.js';
+import { chatDigest } from './eval.js';
 
 async function currentFingerprint(
   context: CliContext,
@@ -13,7 +14,9 @@ async function currentFingerprint(
   id: string,
 ): Promise<string> {
   const instance = await loadInstance(context, instancesDir, id);
-  return chatConfigFingerprint(instance.config, resolveChatModels(instance.config, context.env));
+  const models = resolveChatModels(instance.config, context.env);
+  const digest = await chatDigest(context, models.chat);
+  return chatConfigFingerprint(instance.config, models, { chatDigest: digest });
 }
 
 export async function activateCommand(
